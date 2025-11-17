@@ -235,13 +235,23 @@ void RenderThread::UnloadAssets()
 void RenderThread::SendErrorPopup(const std::string &err)
 {
 	LogMessage(err);
-	MessageBoxA(appData.hWnd, err.c_str(), "Error!", NULL);
+#ifdef NDEBUG
+	MessageBoxA(appData.hWnd, err.c_str(), "Error!", MB_YESNO);
+#else
+	if (MessageBoxA(appData.hWnd, (err + "\nBreak?").c_str(), "Error!", MB_YESNO) == IDYES)
+		DebugBreak();
+#endif
 }
 
 void RenderThread::SendErrorPopup(const std::wstring &err)
 {
 	LogMessage(err);
-	MessageBoxW(appData.hWnd, err.c_str(), L"Error!", NULL);
+#ifdef NDEBUG
+	MessageBoxW(appData.hWnd, err.c_str(), L"Error!", MB_YESNO);
+#else
+	if (MessageBoxW(appData.hWnd, (err + L"\nBreak?").c_str(), L"Error!", MB_YESNO) == IDYES)
+		DebugBreak();
+#endif
 }
 
 void RenderThread::LogMessage(const std::string &msg)
@@ -388,6 +398,12 @@ bool RenderThread::GetQueues()
 		return false;
 	}
 	renderData.presentQueue = pq.value();
+
+	auto tq = appData.device.get_queue(vkb::QueueType::transfer);
+	if (!tq.has_value())
+		renderData.transferQueue = renderData.graphicsQueue;
+	else
+		renderData.transferQueue = tq.value();
 	return true;
 }
 
@@ -669,9 +685,12 @@ bool RenderThread::CreateVertexBuffer(const Resource::Mesh &m)
 	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 	bufferInfo.size = sizeof(vertices[0]) * vertices.size();
 	bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	bufferInfo.sharingMode = VK_SHARING_MODE_CONCURRENT;
+	bufferInfo.queueFamilyIndexCount = 2;
+	u32 queueFamilies[2] = {appData.device.get_queue_index(vkb::QueueType::graphics).value(), appData.device.get_queue_index(vkb::QueueType::transfer).value()};
+	bufferInfo.pQueueFamilyIndices = queueFamilies;
 
-	if (appData.disp.createBuffer(&bufferInfo, nullptr, &renderData.vertexBuffer) != VK_SUCCESS)
+	if (VkResult r = appData.disp.createBuffer(&bufferInfo, nullptr, &renderData.vertexBuffer); r != VK_SUCCESS)
 	{
 		SendErrorPopup("failed to create vertex buffer!");
 		return false;
@@ -714,6 +733,18 @@ bool RenderThread::CreateCommandBuffers()
 	if (appData.disp.allocateCommandBuffers(&allocInfo, renderData.commandBuffers.data()) != VK_SUCCESS)
 	{
 		SendErrorPopup("failed to allocate command buffers");
+		return false;
+	}
+
+	VkCommandBufferAllocateInfo allocInfoTr = {};
+	allocInfoTr.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfoTr.commandPool = renderData.commandPool;
+	allocInfoTr.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfoTr.commandBufferCount = 1;
+
+	if (appData.disp.allocateCommandBuffers(&allocInfoTr, &renderData.transferCommandBuffer) != VK_SUCCESS)
+	{
+		SendErrorPopup("failed to allocate transfer command buffer");
 		return false;
 	}
 

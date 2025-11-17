@@ -112,11 +112,26 @@ LRESULT CALLBACK WndProc(_In_ HWND hWnd, _In_ UINT message, _In_ WPARAM wParam, 
 		break;
 	}
 	case WM_KEYDOWN:
-		th.SetKeyState((u8)(wParam), true);
-		if (wParam == VK_F11)
-			ToggleFullscreen(hWnd, !fullscreen);
-		break;
+	case WM_SYSKEYDOWN:
 	case WM_KEYUP:
+	case WM_SYSKEYUP:
+	{
+		WORD keyFlags = HIWORD(lParam);
+		WORD scanCode = LOBYTE(keyFlags);
+		BOOL isExtendedKey = (keyFlags & KF_EXTENDED) == KF_EXTENDED;
+		BOOL isKeyDown = (keyFlags & KF_UP) != KF_UP;
+		if (isExtendedKey)
+			scanCode = MAKEWORD(scanCode, 0xE0);
+
+		th.SetKeyState((u8)(wParam), isKeyDown);
+		if (isKeyDown)
+		{
+			if (wParam == VK_F11)
+				ToggleFullscreen(hWnd, !fullscreen);
+			else if ((lParam & 0x20000000) && wParam == VK_F4)
+				DestroyWindow(hWnd);
+		}
+		/*
 		if (wParam == VK_ESCAPE)
 		{
 			captured = !captured;
@@ -131,10 +146,9 @@ LRESULT CALLBACK WndProc(_In_ HWND hWnd, _In_ UINT message, _In_ WPARAM wParam, 
 			}
 			break;
 		}
-		th.SetKeyState((u8)(wParam), false);
+		*/
 		break;
-	case WM_SYSKEYDOWN:
-		return DefWindowProc(hWnd, message, wParam, lParam);
+	}
 	case WM_MOUSEMOVE:
 		if (captured) OnMoveMouse(hWnd);
 		break;

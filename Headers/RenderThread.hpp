@@ -44,6 +44,7 @@ struct RenderData
 {
 	VkQueue graphicsQueue;
 	VkQueue presentQueue;
+	VkQueue transferQueue;
 
 	std::vector<VkImage> swapchainImages;
 	std::vector<VkImageView> swapchainImageViews;
@@ -55,6 +56,7 @@ struct RenderData
 
 	VkCommandPool commandPool;
 	std::vector<VkCommandBuffer> commandBuffers;
+	VkCommandBuffer transferCommandBuffer;
 
 	std::vector<VkSemaphore> availableSemaphores;
 	std::vector<VkSemaphore> finishedSemaphore;
