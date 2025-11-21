@@ -30,23 +30,24 @@ LRESULT CALLBACK WndProc(_In_ HWND hWnd, _In_ UINT message, _In_ WPARAM wParam, 
 void OnMoveMouse(HWND hwnd, bool reset = false);
 void ToggleFullscreen(HWND hwnd, bool full);
 
-std::string GetLastErrorAsString()
+std::wstring GetLastErrorAsString()
 {
     //Get the error message ID, if any.
-    DWORD errorMessageID = ::GetLastError();
-    if(errorMessageID == 0) {
-        return std::string(); //No error message has been recorded
+    DWORD errorMessageID = GetLastError();
+    if(errorMessageID == 0)
+	{
+        return std::wstring(); //No error message has been recorded
     }
     
-    LPSTR messageBuffer = nullptr;
+    LPWSTR messageBuffer = nullptr;
 
     //Ask Win32 to give us the string version of that message ID.
     //The parameters we pass in, tell Win32 to create the buffer that holds the message for us (because we don't yet know how long the message string will be).
-    size_t size = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-                                 NULL, errorMessageID, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, NULL);
+    size_t size = FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                                 NULL, errorMessageID, MAKELANGID(LANG_ENGLISH, SUBLANG_DEFAULT), (LPWSTR)&messageBuffer, 0, NULL);
     
     //Copy the error message into a std::string.
-    std::string message(messageBuffer, size);
+    std::wstring message(messageBuffer, size);
     
     //Free the Win32's string's buffer.
     LocalFree(messageBuffer);
@@ -65,7 +66,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 
 		WNDCLASSEXW wcex = {};
 		wcex.cbSize = sizeof(WNDCLASSEX);
-		wcex.style = CS_HREDRAW | CS_VREDRAW;
+		wcex.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
 		wcex.lpfnWndProc = WndProc;
 		wcex.cbClsExtra = 0;
 		wcex.cbWndExtra = 0;
@@ -91,25 +92,23 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 
 		ShowWindow(hWnd, nCmdShow);
 		UpdateWindow(hWnd);
-		BLENDFUNCTION blend = {};
-		blend.BlendOp = AC_SRC_OVER;
-		blend.BlendFlags = 0;
-		blend.SourceConstantAlpha = 255;
-		blend.AlphaFormat = AC_SRC_ALPHA;
-		BOOL res = UpdateLayeredWindow(hWnd, NULL, NULL, NULL, NULL, NULL, 0, &blend, ULW_ALPHA);
-		auto t = GetLastError();
-		auto text = GetLastErrorAsString();
-		gh.Init(hWnd, Maths::IVec2(800, 600));
-		rh.Init(hWnd, hInstance, Maths::IVec2(800, 600));
+
 		LONG_PTR lExStyle = GetWindowLongPtr(hWnd, GWL_EXSTYLE);
 		lExStyle &= ~(WS_EX_DLGMODALFRAME | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE);
 		SetWindowLongPtr(hWnd, GWL_EXSTYLE, lExStyle);
 		SetWindowPos(hWnd, NULL, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER);
+		//LONG exStyle = GetWindowLongW(hWnd, GWL_EXSTYLE);
+		//exStyle |= WS_EX_TRANSPARENT | WS_EX_LAYERED;
+		//SetWindowLongW(hWnd, GWL_EXSTYLE, exStyle);
+		SetLayeredWindowAttributes(hWnd, RGB(255,0,0), 255, LWA_ALPHA);
 		if (!hWnd)
 		{
-			MessageBoxW(NULL, L"Call to CreateWindow failed!", szTitle, NULL);
+			MessageBoxW(hWnd, L"Call to CreateWindow failed!", szTitle, NULL);
 			return 1;
 		}
+
+		gh.Init(hWnd, Maths::IVec2(800, 600));
+		rh.Init(hWnd, hInstance, Maths::IVec2(800, 600));
 
 		// Main message loop:
 		MSG msg;

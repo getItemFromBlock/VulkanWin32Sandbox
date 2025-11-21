@@ -32,6 +32,7 @@ struct AppData
 {
 	HWND hWnd;
 	HINSTANCE hInstance;
+	HRGN region;
 	vkb::Instance instance;
 	vkb::InstanceDispatchTable instDisp;
 	VkSurfaceKHR surface;
@@ -74,7 +75,7 @@ struct RenderData
 	VkDescriptorPool descriptorPool;
 	std::vector<VkDescriptorSet> descriptorSets;
 
-	size_t currentFrame = 0;
+	u64 currentFrame = 0;
 };
 
 struct SceneData

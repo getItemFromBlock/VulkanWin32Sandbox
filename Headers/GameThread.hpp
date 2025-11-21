@@ -11,7 +11,7 @@
 
 #include "Maths/Maths.hpp"
 
-const u32 OBJECT_COUNT = 20000;
+const u32 OBJECT_COUNT = 1000000;
 
 class GameThread
 {

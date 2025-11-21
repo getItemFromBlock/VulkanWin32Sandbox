@@ -4,6 +4,9 @@
 #include <time.h>
 #include <fstream>
 
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi")
+
 using namespace Maths;
 
 std::string LoadFile(const std::string &path)
@@ -26,6 +29,7 @@ void RenderThread::Init(HWND hwnd, HINSTANCE hinstance, Maths::IVec2 resIn)
 {
 	appData.hWnd = hwnd;
 	appData.hInstance = hinstance;
+	appData.region = CreateRectRgn(0, 0, -1, -1);
 	res = resIn;
 	thread = std::thread(&RenderThread::ThreadFunc, this);
 }
@@ -110,11 +114,18 @@ void RenderThread::ThreadFunc()
 
 		if (!DrawFrame())
 			break;
+
+		DWM_BLURBEHIND bb = { 0 };
+		bb.dwFlags = DWM_BB_ENABLE | DWM_BB_BLURREGION;
+		bb.hRgnBlur = appData.region;
+		bb.fEnable = TRUE;
+		DwmEnableBlurBehindWindow(appData.hWnd, &bb);
 	}
 
 	appData.disp.deviceWaitIdle();
 	UnloadAssets();
 	Cleanup();
+	DeleteObject(appData.region);
 
 	if (!exit)
 		crashed = true;
@@ -211,8 +222,10 @@ VkSurfaceKHR RenderThread::CreateSurfaceWin32(VkInstance instance, HINSTANCE hIn
 bool RenderThread::InitDevice()
 {
 	vkb::InstanceBuilder instanceBuilder;
+	instanceBuilder.enable_extension(VK_KHR_SURFACE_EXTENSION_NAME);
+	instanceBuilder.enable_extension(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 	instanceBuilder.set_app_name("Vulkan Demo").set_app_version(VK_MAKE_VERSION(1, 0, 0));
-	instanceBuilder.set_engine_name("Ligma Engine").enable_extension("VK_KHR_surface").request_validation_layers();
+	instanceBuilder.set_engine_name("Ligma Engine");
 
 	instanceBuilder.set_debug_callback([](VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
 		VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -241,7 +254,6 @@ bool RenderThread::InitDevice()
 	appData.surface = CreateSurfaceWin32(appData.instance, appData.hInstance, appData.hWnd);
 
 	vkb::PhysicalDeviceSelector physDeviceSelector(appData.instance);
-
 	auto physDeviceRet = physDeviceSelector.set_surface(appData.surface).select();
 	if (!physDeviceRet)
 	{
@@ -260,6 +272,9 @@ bool RenderThread::InitDevice()
 		return false;
 	}
 	vkb::PhysicalDevice physicalDevice = physDeviceRet.value();
+	VkPhysicalDeviceFeatures features = {};
+	features.logicOp = 1;
+	physicalDevice.enable_features_if_present(features);
 	vkb::DeviceBuilder deviceBuilder{ physicalDevice };
 
 	auto deviceRet = deviceBuilder.build();
@@ -270,9 +285,6 @@ bool RenderThread::InitDevice()
 	}
 	appData.device = deviceRet.value();
 	appData.disp = appData.device.make_table();
-
-	VkSurfaceCapabilitiesKHR surfaceCaps = {};
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(appData.device.physical_device, appData.surface, &surfaceCaps);
 
 	return true;
 }
@@ -537,6 +549,12 @@ bool RenderThread::CreateGraphicsPipeline()
 	colorBlendAttachment.colorWriteMask =
 		VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 	colorBlendAttachment.blendEnable = VK_FALSE;
+	colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+	colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+	colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+	colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
 
 	VkPipelineColorBlendStateCreateInfo colorBlending = {};
 	colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -597,7 +615,7 @@ bool RenderThread::CreateGraphicsPipeline()
 
 bool RenderThread::CreateObjectBuffer(const u32 objectCount)
 {
-	VkDeviceSize bufferSize = sizeof(Vec4) * objectCount + sizeof(Vec4);
+	VkDeviceSize bufferSize = sizeof(Vec4) * objectCount + sizeof(Vec4) * 4;
 	renderData.objectBuffers.resize(renderData.swapchainImageViews.size());
 	renderData.objectBuffersMemory.resize(renderData.swapchainImageViews.size());
 	renderData.objectBuffersMapped.resize(renderData.swapchainImageViews.size());
@@ -660,7 +678,8 @@ bool RenderThread::CreateCommandPool()
 
 	VkCommandPoolCreateInfo poolInfo1 = {};
 	poolInfo1.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-	poolInfo1.queueFamilyIndex = appData.device.get_queue_index(vkb::QueueType::transfer).value();
+	auto transfer = appData.device.get_queue_index(vkb::QueueType::transfer);
+	poolInfo1.queueFamilyIndex = transfer.has_value() ? transfer.value() : poolInfo0.queueFamilyIndex;
 
 	if (appData.disp.createCommandPool(&poolInfo1, nullptr, &renderData.transfertCommandPool) != VK_SUCCESS)
 	{
@@ -834,7 +853,9 @@ bool RenderThread::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkM
     bufferInfo.usage = usage;
     bufferInfo.sharingMode = VK_SHARING_MODE_CONCURRENT;
 	bufferInfo.queueFamilyIndexCount = 2;
-	u32 queueFamilies[2] = {appData.device.get_queue_index(vkb::QueueType::graphics).value(), appData.device.get_queue_index(vkb::QueueType::transfer).value()};
+	auto transfer = appData.device.get_queue_index(vkb::QueueType::transfer);
+	auto graph = appData.device.get_queue_index(vkb::QueueType::graphics);
+	u32 queueFamilies[2] = {appData.device.get_queue_index(vkb::QueueType::graphics).value(), transfer.has_value() ? transfer.value() : graph.has_value()};
 	bufferInfo.pQueueFamilyIndices = queueFamilies;
 
     if (appData.disp.createBuffer(&bufferInfo, nullptr, &buffer) != VK_SUCCESS)
@@ -947,7 +968,7 @@ bool RenderThread::CreateDescriptorSets()
 
 		VkDescriptorBufferInfo bufferInfo1 = {};
 		bufferInfo1.buffer = renderData.objectBuffers[i];
-		bufferInfo1.offset = sizeof(Vec4);
+		bufferInfo1.offset = sizeof(Vec4) * 4;
 		bufferInfo1.range = sizeof(Vec4) * OBJECT_COUNT;
 
 		VkWriteDescriptorSet descriptorWrite0 = {};
@@ -1021,9 +1042,9 @@ bool RenderThread::UpdateUniformBuffer(u32 image)
 
 	for (u32 i = 0; i < OBJECT_COUNT; i++)
 	{
-		const s32 spacing = 20;
+		const s32 spacing = 50;
 		Vec2 pos = Vec2(10 + (i*spacing) % (res.x - 20), 10 + (i*spacing) / (res.x - 20) * spacing % (res.y - 20));
-		dataPtr[i+1] = Vec4(pos.x, pos.y, tmMod + fmodf(i * 3486.156132f, M_PI * 2), 0.0f);
+		dataPtr[i+4] = Vec4(pos.x, pos.y, tmMod, 0.0f);
 	}
 	return true;
 }
