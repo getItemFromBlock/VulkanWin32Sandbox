@@ -1,8 +1,6 @@
 #pragma once
 
 #include <Windows.h>
-#include <dwmapi.h>
-#pragma comment(lib, "dwmapi")
 
 #include <thread>
 #include <vector>
@@ -34,7 +32,6 @@ struct AppData
 {
 	HWND hWnd;
 	HINSTANCE hInstance;
-	HRGN region;
 	vkb::Instance instance;
 	vkb::InstanceDispatchTable instDisp;
 	VkSurfaceKHR surface;
@@ -91,7 +88,7 @@ public:
 	RenderThread() = default;
 	~RenderThread() = default;
 
-	void Init(HWND hwnd, HINSTANCE hInstance, HRGN area, Maths::IVec2 res);
+	void Init(HWND hwnd, HINSTANCE hInstance, Maths::IVec2 res);
 	void Resize(s32 x, s32 y);
 	bool HasFinished() const;
 	bool HasCrashed() const;

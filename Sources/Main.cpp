@@ -1,5 +1,7 @@
 #include <iostream>
 #include <Windows.h>
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi")
 
 #include "Maths/Maths.hpp"
 #include "RenderThread.hpp"
@@ -94,11 +96,12 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 		area = CreateRectRgn(0, 0, -1, -1);
 		DWM_BLURBEHIND bb = { 0 };
 		bb.dwFlags = DWM_BB_ENABLE | DWM_BB_BLURREGION;
-		bb.hRgnBlur = NULL;
+		bb.hRgnBlur = area;
 		bb.fEnable = TRUE;
 		HRESULT r = DwmEnableBlurBehindWindow(hWnd, &bb);
 		if (r != S_OK)
 			MessageBoxW(hWnd, L"Call to DwmEnableBlurBehindWindow failed!", szTitle, NULL);
+		DeleteObject(area);
 
 		ShowWindow(hWnd, nCmdShow);
 		UpdateWindow(hWnd);
@@ -115,7 +118,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 		}
 
 		gh.Init(hWnd, Maths::IVec2(800, 600));
-		rh.Init(hWnd, hInstance, area, Maths::IVec2(800, 600));
+		rh.Init(hWnd, hInstance, Maths::IVec2(800, 600));
 
 		// Main message loop:
 		MSG msg;
@@ -126,7 +129,6 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 		}
 		gh.Quit();
 		rh.Quit();
-		DeleteObject(area);
 		return (int)msg.wParam;
 	}
 }

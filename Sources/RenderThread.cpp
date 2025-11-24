@@ -22,11 +22,10 @@ std::string LoadFile(const std::string &path)
 	return result;
 }
 
-void RenderThread::Init(HWND hwnd, HINSTANCE hinstance, HRGN area, Maths::IVec2 resIn)
+void RenderThread::Init(HWND hwnd, HINSTANCE hinstance, Maths::IVec2 resIn)
 {
 	appData.hWnd = hwnd;
 	appData.hInstance = hinstance;
-	appData.region = area;
 	res = resIn;
 	thread = std::thread(&RenderThread::ThreadFunc, this);
 }
@@ -111,12 +110,6 @@ void RenderThread::ThreadFunc()
 
 		if (!DrawFrame())
 			break;
-
-		DWM_BLURBEHIND bb = { 0 };
-		bb.dwFlags = DWM_BB_ENABLE | DWM_BB_BLURREGION;
-		bb.hRgnBlur = appData.region;
-		bb.fEnable = TRUE;
-		DwmEnableBlurBehindWindow(appData.hWnd, &bb);
 	}
 
 	appData.disp.deviceWaitIdle();
@@ -221,7 +214,7 @@ bool RenderThread::InitDevice()
 	instanceBuilder.enable_extension(VK_KHR_SURFACE_EXTENSION_NAME);
 	instanceBuilder.enable_extension(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 	instanceBuilder.set_app_name("Vulkan Demo").set_app_version(VK_MAKE_VERSION(1, 0, 0));
-	instanceBuilder.set_engine_name("Ligma Engine");
+	instanceBuilder.set_engine_name("Ligma Engine").request_validation_layers();
 
 	instanceBuilder.set_debug_callback([](VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
 		VkDebugUtilsMessageTypeFlagsEXT messageType,
