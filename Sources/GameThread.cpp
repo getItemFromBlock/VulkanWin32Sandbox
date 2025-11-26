@@ -3,6 +3,8 @@
 using namespace Maths;
 
 HWND GameThread::hWnd = NULL;
+std::atomic_bool GameThread::crashed = false;
+bool GameThread::isUnitTest = false;
 
 const u8 MOVEMENT_KEYS[6] =
 {
@@ -25,8 +27,9 @@ float GameThread::NextFloat01()
 	return rand() / static_cast<float>(RAND_MAX);
 }
 
-void GameThread::Init(HWND hwnd, u32 customMsg, Maths::IVec2 resIn)
+void GameThread::Init(HWND hwnd, u32 customMsg, Maths::IVec2 resIn, bool isUnitTest)
 {
+	isUnitTest = isUnit;
 	hWnd = hwnd;
 	res = resIn;
 	customMessage = customMsg;
@@ -71,6 +74,11 @@ void GameThread::SendWindowMessage(WindowMessage msg, u64 payload)
 void GameThread::SendErrorPopup(const std::string &err)
 {
 	LogMessage(err);
+	if (isUnitTest)
+	{
+		crashed = true;
+		return;
+	}
 #ifdef NDEBUG
 	MessageBoxA(hWnd, err.c_str(), "Error!", MB_OK);
 #else
@@ -82,6 +90,11 @@ void GameThread::SendErrorPopup(const std::string &err)
 void GameThread::SendErrorPopup(const std::wstring &err)
 {
 	LogMessage(err);
+	if (isUnitTest)
+	{
+		crashed = true;
+		return;
+	}
 #ifdef NDEBUG
 	MessageBoxW(hWnd, err.c_str(), L"Error!", MB_OK);
 #else
@@ -98,6 +111,11 @@ void GameThread::LogMessage(const std::string &msg)
 void GameThread::LogMessage(const std::wstring &msg)
 {
 	OutputDebugStringW(msg.c_str());
+}
+
+bool GameThread::HasCrashed()
+{
+	return crashed;
 }
 
 void GameThread::HandleResize()
@@ -441,6 +459,11 @@ void GameThread::ThreadFunc()
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		
 		UpdateBuffers();
+
+		if (isUnitTest && appTime > 10.0f)
+		{
+
+		}
 	}
 
 	poolExit = true;

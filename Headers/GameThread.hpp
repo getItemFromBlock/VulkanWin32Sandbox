@@ -40,7 +40,7 @@ public:
 	GameThread() = default;
 	~GameThread() = default;
 
-	void Init(HWND hwnd, u32 customMsg, Maths::IVec2 res);
+	void Init(HWND hwnd, u32 customMsg, Maths::IVec2 res, bool isUnitTest);
 	void Resize(s32 x, s32 y);
 	bool HasFinished() const;
 	void Quit();
@@ -54,9 +54,12 @@ public:
 	static void SendErrorPopup(const std::string &err);
 	static void LogMessage(const std::wstring &msg);
 	static void LogMessage(const std::string &msg);
+	static bool HasCrashed();
 
 private:
 	static HWND hWnd;
+	static std::atomic_bool crashed;
+	static bool isUnitTest;
 	std::thread thread;
 	std::chrono::system_clock::duration start = std::chrono::system_clock::duration();
 	std::atomic_bool exit;
