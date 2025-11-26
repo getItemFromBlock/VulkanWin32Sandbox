@@ -27,7 +27,7 @@ float GameThread::NextFloat01()
 	return rand() / static_cast<float>(RAND_MAX);
 }
 
-void GameThread::Init(HWND hwnd, u32 customMsg, Maths::IVec2 resIn, bool isUnitTest)
+void GameThread::Init(HWND hwnd, u32 customMsg, Maths::IVec2 resIn, bool isUnit)
 {
 	isUnitTest = isUnit;
 	hWnd = hwnd;
@@ -379,6 +379,9 @@ void GameThread::ThreadFunc()
 {
 	InitThread();
 
+	if (isUnitTest)
+		LogMessage("Unit test");
+
 	u32 counter = 0;
 	u32 tm0 = 0;
 	while (!exit)
@@ -461,9 +464,7 @@ void GameThread::ThreadFunc()
 		UpdateBuffers();
 
 		if (isUnitTest && appTime > 10.0f)
-		{
-
-		}
+			SendWindowMessage(EXIT_WINDOW);
 	}
 
 	poolExit = true;

@@ -19,6 +19,7 @@ UINT customMessage = 0;
 bool captured = false;
 bool fullscreen = false;
 bool isUnitTest = false;
+std::mutex mainThreadLock;
 RenderThread rh;
 GameThread gh;
 
@@ -148,7 +149,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 		}
 		rh.Quit();
 		gh.Quit();
-		if (gh.HasCrashed || rh.HasCrashed())
+		if (gh.HasCrashed() || rh.HasCrashed())
 			return 1;
 		return (int)msg.wParam;
 	}
@@ -156,6 +157,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 
 LRESULT CALLBACK WndProc(_In_ HWND hWnd, _In_ UINT message, _In_ WPARAM wParam, _In_ LPARAM lParam)
 {
+	std::scoped_lock(mainThreadLock);
 	switch (message)
 	{
 	case WM_PAINT:
@@ -166,11 +168,12 @@ LRESULT CALLBACK WndProc(_In_ HWND hWnd, _In_ UINT message, _In_ WPARAM wParam, 
 		rh.Resize(r.right - r.left, r.bottom - r.top);
 		break;
 	}
+	case WM_CLOSE:
+		rh.Quit();
+		return DefWindowProc(hWnd, message, wParam, lParam);
 	case WM_CLEAR:
 		break;
 	case WM_DESTROY:
-		gh.Quit();
-		rh.Quit();
 		PostQuitMessage(0);
 		break;
 	case WM_SIZE:
@@ -234,6 +237,7 @@ LRESULT CALLBACK WndProc(_In_ HWND hWnd, _In_ UINT message, _In_ WPARAM wParam, 
 
 void HandleCustomMessage(HWND hWnd, WindowMessage msg, u64 payload)
 {
+	mainThreadLock.lock();
 	switch (msg)
 	{
 	case NONE:
@@ -249,9 +253,13 @@ void HandleCustomMessage(HWND hWnd, WindowMessage msg, u64 payload)
 			SetCursor(cursorHide);
 		}
 		break;
+	case EXIT_WINDOW:
+		PostMessageA(hWnd, WM_CLOSE, 0, 0);
+		break;
 	default:
 		break;
 	}
+	mainThreadLock.unlock();
 }
 
 void OnMoveMouse(HWND hwnd, bool reset)

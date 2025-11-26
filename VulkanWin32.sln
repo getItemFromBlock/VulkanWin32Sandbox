@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.14.36603.0 d17.14
+VisualStudioVersion = 17.14.36603.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "VulkanWin32", "VulkanWin32.vcxproj", "{EF6703EB-A900-4B21-92B8-BE070DCDDB44}"
 EndProject
@@ -11,6 +11,10 @@ Global
 		Debug|x86 = Debug|x86
 		Release|x64 = Release|x64
 		Release|x86 = Release|x86
+		UnitTest_D|x64 = UnitTest_D|x64
+		UnitTest_D|x86 = UnitTest_D|x86
+		UnitTest_R|x64 = UnitTest_R|x64
+		UnitTest_R|x86 = UnitTest_R|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{EF6703EB-A900-4B21-92B8-BE070DCDDB44}.Debug|x64.ActiveCfg = Debug|x64
@@ -21,6 +25,14 @@ Global
 		{EF6703EB-A900-4B21-92B8-BE070DCDDB44}.Release|x64.Build.0 = Release|x64
 		{EF6703EB-A900-4B21-92B8-BE070DCDDB44}.Release|x86.ActiveCfg = Release|Win32
 		{EF6703EB-A900-4B21-92B8-BE070DCDDB44}.Release|x86.Build.0 = Release|Win32
+		{EF6703EB-A900-4B21-92B8-BE070DCDDB44}.UnitTest_D|x64.ActiveCfg = UnitTest_D|x64
+		{EF6703EB-A900-4B21-92B8-BE070DCDDB44}.UnitTest_D|x64.Build.0 = UnitTest_D|x64
+		{EF6703EB-A900-4B21-92B8-BE070DCDDB44}.UnitTest_D|x86.ActiveCfg = UnitTest_D|Win32
+		{EF6703EB-A900-4B21-92B8-BE070DCDDB44}.UnitTest_D|x86.Build.0 = UnitTest_D|Win32
+		{EF6703EB-A900-4B21-92B8-BE070DCDDB44}.UnitTest_R|x64.ActiveCfg = UnitTest_R|x64
+		{EF6703EB-A900-4B21-92B8-BE070DCDDB44}.UnitTest_R|x64.Build.0 = UnitTest_R|x64
+		{EF6703EB-A900-4B21-92B8-BE070DCDDB44}.UnitTest_R|x86.ActiveCfg = UnitTest_R|Win32
+		{EF6703EB-A900-4B21-92B8-BE070DCDDB44}.UnitTest_R|x86.Build.0 = UnitTest_R|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
