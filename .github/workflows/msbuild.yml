@@ -30,6 +30,12 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Install Vulkan SDK
+      uses: humbletim/install-vulkan-sdk@v1.2
+      with:
+        version: 1.4.328.1
+        cache: true
+
     - name: Add MSBuild to PATH
       uses: microsoft/setup-msbuild@v1.0.2
 
