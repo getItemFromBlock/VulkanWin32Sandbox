@@ -51,7 +51,8 @@ jobs:
         Remove-Item -Path $vulkanInstaller
 
     - name: Print deez balls
-      run: echo $Env:VULKAN_SDK
+      run: |
+          echo "VULKAN_SDK is $env:VULKAN_SDK $VULKAN_SDK"
 
     - run: |
           "VULKAN_SDK=D:/a/VulkanWin32Engine/VulkanWin32Engine/VULKAN_SDK" >> $env:GITHUB_ENV
