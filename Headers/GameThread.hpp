@@ -11,11 +11,20 @@
 
 #include "Maths/Maths.hpp"
 
-const u32 OBJECT_COUNT = 1000;
-const u32 CELL_SIZE = 128;
-const float BOID_DIST_MAX = 128.0f;
-const float BOID_DIST_MIN = 64.0f;
-const float BOID_MAX_SPEED = 75.0f;
+const u32 OBJECT_COUNT = 30000;
+const u32 CELL_SIZE = 64;
+const float BOID_DIST_MAX = 64.0f;
+const float BOID_DIST_MIN = 12.0f;
+const float BOID_MAX_SPEED = 250.0f;
+const float BOID_CURSOR_DIST = 256.0f;
+
+struct PoolTask
+{
+	u32 taskID;
+	u32 cellX;
+	u32 cellY;
+	float deltaTime;
+};
 
 class GameThread
 {
@@ -54,6 +63,8 @@ private:
 	Maths::Vec2 rotation = Maths::Vec2(static_cast<f32>(M_PI_2) - 1.059891f, 0.584459f);
 	f32 fov = 3.55f;
 	f64 appTime = 0;
+	Maths::Vec2 cursorPos;
+	std::atomic_bool mousePressed = false;
 
 	std::vector<Maths::Vec2> positions;
 	std::vector<Maths::Vec2> velocities;
@@ -66,6 +77,13 @@ private:
 	std::vector<Maths::Vec4> bufferB;
 	std::atomic_bool currentBuf = false;
 
+	std::vector<std::thread> threadPool;
+	std::vector<std::vector<std::vector<u32>>> threadCells;
+	std::vector<PoolTask> tasks;
+	std::atomic_uint32_t taskCounter;
+	std::atomic_bool poolExit;
+	std::mutex taskLock;
+
 	void ThreadFunc();
 	void HandleResize();
 	void InitThread();
@@ -75,4 +93,9 @@ private:
 	void UpdateBuffers();
 	float NextFloat01();
 	s32 GetCell(Maths::IVec2 pos, Maths::IVec2 &dt);
+	void ThreadPoolFunc();
+	bool ThreadPoolUpdate();
+	void ProcessCellUpdate(u32 x, u32 y, float deltaTime);
+	void ProcessPostUpdate(u32 start, u32 end, float deltaTime);
+	void GatherThreadCells();
 };

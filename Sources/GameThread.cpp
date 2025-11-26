@@ -121,6 +121,16 @@ void GameThread::InitThread()
 		positions[i] = Vec2(NextFloat01() * res.x, NextFloat01() * res.y);
 		velocities[i] = (Vec2(NextFloat01(), NextFloat01()) * 2 - 1) * BOID_MAX_SPEED * 0.2f;
 	}
+
+	const u32 threadCount = Util::MaxU(std::thread::hardware_concurrency() - 4, std::thread::hardware_concurrency() / 2);
+	threadPool.resize(threadCount);
+	// Need one extra slot for the "main threa" (Game Thread)
+	threadCells.resize(threadCount+1);
+
+	for (u32 i = 0; i < threadCount; i++)
+	{
+		threadPool[i] = std::thread(&GameThread::ThreadPoolFunc, this);
+	}
 }
 
 s32 GameThread::GetCell(Maths::IVec2 pos, Maths::IVec2 &dt)
@@ -153,8 +163,13 @@ void GameThread::PreUpdate()
 	for (u32 i = 0; i < cells.size(); i++)
 		cells[i].clear();
 
-	if (cells.size() < cellCount.x * cellCount.y)
-		cells.resize(cellCount.x*cellCount.y);
+	const u32 totalCells = cellCount.x * cellCount.y;
+	if (cells.size() < totalCells)
+	{
+		cells.resize(totalCells);
+		for (u32 i = 0; i < threadCells.size(); i++)
+			threadCells[i].resize(totalCells);
+	}
 
 	for (u32 i = 0; i < OBJECT_COUNT; i++)
 	{
@@ -169,76 +184,135 @@ void GameThread::PreUpdate()
 
 void GameThread::Update(float deltaTime)
 {
-	std::unordered_set<u32> ids;
-	for (s32 cx = 0; cx < cellCount.x; cx++)
+	taskLock.lock();
+	for (u32 cx = 0; cx < cellCount.x; cx++)
 	{
-		for (s32 cy = 0; cy < cellCount.y; cy++)
+		for (u32 cy = 0; cy < cellCount.y; cy++)
 		{
-			const auto& vec1 = cells[cx + cy * cellCount.x];
-			for (u32 index1 = 0; index1 < vec1.size(); index1++)
+			PoolTask task;
+			task.taskID = 0;
+			task.deltaTime = deltaTime;
+			task.cellX = cx;
+			task.cellY = cy;
+			tasks.push_back(task);
+		}
+	}
+	taskCounter = tasks.size();
+	taskLock.unlock();
+
+	while (taskCounter != 0)
+		ThreadPoolUpdate();
+}
+
+void GameThread::PostUpdate(float deltaTime)
+{
+	taskLock.lock();
+	for (u32 x = 0; x < OBJECT_COUNT; x+= 512)
+	{
+		PoolTask task;
+		task.taskID = 1;
+		task.deltaTime = deltaTime;
+		task.cellX = x;
+		task.cellY = Util::MinU(x + 512, OBJECT_COUNT);
+		tasks.push_back(task);
+	}
+	taskCounter = tasks.size();
+	taskLock.unlock();
+
+	while (taskCounter != 0)
+		ThreadPoolUpdate();
+}
+
+void GameThread::UpdateBuffers()
+{
+	auto &buf = currentBuf ? bufferA : bufferB;
+
+	for (u32 i = 0; i < OBJECT_COUNT; i++)
+	{
+		Vec2 v = velocities[i];
+		rotations[i] = -atan2f(v.y, v.x) - M_PI_2;
+
+		buf[i] = Vec4(positions[i].x, positions[i].y, rotations[i], 0.0f);
+	}
+	currentBuf = !currentBuf;
+}
+
+const std::vector<Maths::Vec4> GameThread::GetSimulationData() const
+{
+	return currentBuf ? bufferB : bufferA;
+}
+
+void GameThread::ProcessCellUpdate(u32 cx, u32 cy, float deltaTime)
+{
+	const auto &vec1 = cells[cx + cy * cellCount.x];
+	for (u32 index1 = 0; index1 < vec1.size(); index1++)
+	{
+		u32 boid1 = vec1[index1];
+
+		Vec2 globalPos;
+		Vec2 globalRot;
+		Vec2 avoidDir;
+		u32 count = 0;
+		u32 avoidCount = 0;
+
+		for (s32 i = -1; i <= 1; i++)
+		{
+			for (s32 j = -1; j <= 1; j++)
 			{
-				u32 boid1 = vec1[index1];
-				assert(!ids.contains(boid1));
-				ids.emplace(boid1);
+				IVec2 dt;
+				s32 cellId = GetCell(IVec2(cx + i, cy + j), dt);
 
-				Vec2 globalPos;
-				Vec2 globalRot;
-				Vec2 avoidDir;
-				u32 count = 0;
-				u32 avoidCount = 0;
-
-				for (s32 i = -1; i <= 1; i++)
+				const auto &vec2 = cells[cellId];
+				for (u32 index2 = 0; index2 < vec2.size(); index2++)
 				{
-					for (s32 j = -1; j <= 1; j++)
+					u32 boid2 = vec2[index2];
+					if (boid1 == boid2)
+						continue;
+
+					Vec2 delta = positions[boid2] - positions[boid1] + dt;
+					float distSqr = delta.Dot();
+					if (distSqr > BOID_DIST_MAX * BOID_DIST_MAX)
+						continue;
+
+					globalPos += delta;
+					globalRot += velocities[boid2];
+					count++;
+
+					if (distSqr < BOID_DIST_MIN * BOID_DIST_MIN && distSqr > 0)
 					{
-						if (i == 0 && j == 0)
-							continue;
-						IVec2 dt;
-						s32 cellId = GetCell(IVec2(cx + i, cy + j), dt);
-
-						const auto& vec2 = cells[cellId];
-						for (u32 index2 = 0; index2 < vec2.size(); index2++)
-						{
-							u32 boid2 = vec2[index2];
-							if (boid1 == boid2)
-								continue;
-
-							Vec2 delta = positions[boid2] - positions[boid1] + dt;
-							float distSqr = delta.Dot();
-							if (distSqr > BOID_DIST_MAX * BOID_DIST_MAX)
-								continue;
-
-							globalPos += delta;
-							globalRot += velocities[boid2];
-							count++;
-							
-							if (distSqr < BOID_DIST_MIN * BOID_DIST_MIN && distSqr > 0)
-							{
-								float dist = sqrtf(distSqr);
-								avoidCount++;
-								avoidDir -= delta.Normalize() / dist * BOID_DIST_MIN;
-							}
-						}
+						float dist = sqrtf(distSqr);
+						avoidCount++;
+						avoidDir -= delta / (dist * dist * dist) * BOID_DIST_MIN * BOID_DIST_MIN * BOID_DIST_MIN;
 					}
 				}
+			}
+		}
 
-				if (count != 0)
-				{
-					accels[boid1] = (globalPos / count) * 1000 + (globalRot / count) * 1000;
-					if (avoidCount != 0)
-						accels[boid1] += (avoidDir / avoidCount) * 90000;
-					accels[boid1] *= deltaTime;
-				}
-				else
-					accels[boid1] = velocities[boid1].Normalize() * deltaTime;
+		if (count != 0)
+		{
+			accels[boid1] = (globalPos / count) * 700 + (globalRot / count) * 2500;
+			if (avoidCount != 0)
+				accels[boid1] += (avoidDir / avoidCount) * 9000;
+			accels[boid1] *= deltaTime;
+		}
+		else
+			accels[boid1] = velocities[boid1].Normalize() * deltaTime;
+
+		if (mousePressed)
+		{
+			Vec2 d = positions[boid1] - cursorPos;
+			if (d.Dot() < BOID_CURSOR_DIST * BOID_CURSOR_DIST)
+			{
+				float len = d.Length();
+				accels[boid1] += d / (len * len) * deltaTime * 60000000;
 			}
 		}
 	}
 }
 
-void GameThread::PostUpdate(float deltaTime)
+void GameThread::ProcessPostUpdate(u32 start, u32 end, float deltaTime)
 {
-	for (u32 i = 0; i < OBJECT_COUNT; i++)
+	for (u32 i = start; i < end; i++)
 	{
 		Vec2 newVel = velocities[i] + accels[i] * deltaTime;
 		float len = newVel.Length();
@@ -260,25 +334,6 @@ void GameThread::PostUpdate(float deltaTime)
 
 		positions[i] = newPos;
 	}
-}
-
-void GameThread::UpdateBuffers()
-{
-	auto &buf = currentBuf ? bufferA : bufferB;
-
-	for (u32 i = 0; i < OBJECT_COUNT; i++)
-	{
-		Vec2 v = velocities[i];
-		rotations[i] = -atan2f(v.y, v.x) - M_PI_2;
-
-		buf[i] = Vec4(positions[i].x, positions[i].y, rotations[i], 0.0f);
-	}
-	currentBuf = !currentBuf;
-}
-
-const std::vector<Maths::Vec4> GameThread::GetSimulationData() const
-{
-	return currentBuf ? bufferB : bufferA;
 }
 
 void GameThread::ThreadFunc()
@@ -334,9 +389,18 @@ void GameThread::ThreadFunc()
 			dir = dir.Normalize() * deltaTime * 10;
 			position += q * dir;
 		}
+		POINT p;
+		GetCursorPos(&p);
+		ScreenToClient(hWnd, &p);
+		bool click = GetKeyState(VK_LBUTTON) < 0;
+		cursorPos.x = p.x;
+		cursorPos.y = p.y;
+		mousePressed = click;
 		
-		if (deltaTime > 0.016f)
-			deltaTime = 0.016f;
+
+		// Hard cap movement to 30 fps so that deltatime does not gets too big
+		if (deltaTime > 0.033f)
+			deltaTime = 0.033f;
 		if (appTime > 1)
 		{
 			PreUpdate();
@@ -347,5 +411,54 @@ void GameThread::ThreadFunc()
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		
 		UpdateBuffers();
+	}
+
+	poolExit = true;
+	for (u32 i = 0; i < threadPool.size(); i++)
+	{
+		threadPool[i].join();
+	}
+}
+
+bool GameThread::ThreadPoolUpdate()
+{
+	taskLock.lock();
+	PoolTask task;
+	task.taskID = -1;
+	if (!tasks.empty())
+	{
+		task = tasks.back();
+		tasks.pop_back();
+	}
+	taskLock.unlock();
+
+	if (task.taskID == (u32)(-1))
+	{
+		return false;
+	}
+	else
+	{
+		switch (task.taskID)
+		{
+		case 0:
+			ProcessCellUpdate(task.cellX, task.cellY, task.deltaTime);
+			break;
+		case 1:
+			ProcessPostUpdate(task.cellX, task.cellY, task.deltaTime);
+			break;
+		default:
+			break;
+		}
+		taskCounter--;
+	}
+	return true;
+}
+
+void GameThread::ThreadPoolFunc()
+{
+	while (!poolExit)
+	{
+		if (!ThreadPoolUpdate())
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 	}
 }

@@ -1359,7 +1359,21 @@ namespace Maths
 		return a;
 	}
 
+	inline u32 Util::MinU(u32 a, u32 b)
+	{
+		if (a > b)
+			return b;
+		return a;
+	}
+
 	inline s32 Util::MaxI(s32 a, s32 b)
+	{
+		if (a > b)
+			return a;
+		return b;
+	}
+
+	inline u32 Util::MaxU(u32 a, u32 b)
 	{
 		if (a > b)
 			return a;

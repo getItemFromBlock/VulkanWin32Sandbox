@@ -1022,7 +1022,7 @@ bool RenderThread::RecreateSwapchain()
 bool RenderThread::UpdateUniformBuffer(u32 image)
 {
 	Vec4 *dataPtr = renderData.objectBuffersMapped[image];
-	dataPtr[0] = Vec4(1.0f/res.x, 1.0f/res.y, 30, 30);
+	dataPtr[0] = Vec4(1.0f/res.x, 1.0f/res.y, 15, 15);
 
 	const auto& data = appData.gm->GetSimulationData();
 	if (data.size() < OBJECT_COUNT)

@@ -769,6 +769,10 @@ namespace Maths
 
 		inline s32 MaxI(s32 a, s32 b);
 
+		inline u32 MinU(u32 a, u32 b);
+
+		inline u32 MaxU(u32 a, u32 b);
+
 		// Smooth min function
 		inline f32 SMin(f32 a, f32 b, f32 delta);
 
