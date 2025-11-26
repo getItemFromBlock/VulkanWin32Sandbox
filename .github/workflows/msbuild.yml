@@ -40,7 +40,7 @@ jobs:
       uses: microsoft/setup-msbuild@v1.0.2
 
     - name: Hello world
-      run: echo $Env:VULKAN_SDK
+      run: dir $Env:VULKAN_SDK\include\vulkan
 
     - name: Restore NuGet packages
       working-directory: ${{env.GITHUB_WORKSPACE}}
