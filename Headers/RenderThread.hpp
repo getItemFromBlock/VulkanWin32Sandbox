@@ -133,6 +133,7 @@ private:
 	bool CreateGraphicsPipeline();
 	bool CreateFramebuffers();
 	bool CreateCommandPool();
+	bool CreateDepthResources();
 	bool CreateVertexBuffer(const Resource::Mesh &m);
 	bool CreateObjectBuffer(const u32 objectCount);
 	bool CreateCommandBuffers();
@@ -142,6 +143,9 @@ private:
 	bool RecreateSwapchain();
 	bool UpdateUniformBuffer(u32 image);
 	u32 FindMemoryType(u32 typeFilter, VkMemoryPropertyFlags properties);
+	VkFormat FindDepthFormat();
+	bool HasStencilComponent(VkFormat format);
+	VkFormat FindSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
 	bool CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
 	bool CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 	bool DrawFrame();

@@ -605,7 +605,7 @@ bool RenderThread::CreateGraphicsPipeline()
 
 bool RenderThread::CreateObjectBuffer(const u32 objectCount)
 {
-	VkDeviceSize bufferSize = sizeof(Vec4) * objectCount + sizeof(Vec4) * 4;
+	VkDeviceSize bufferSize = sizeof(Vec4) * objectCount * 2 + sizeof(Mat4);
 	renderData.objectBuffers.resize(renderData.swapchainImageViews.size());
 	renderData.objectBuffersMemory.resize(renderData.swapchainImageViews.size());
 	renderData.objectBuffersMapped.resize(renderData.swapchainImageViews.size());
@@ -676,6 +676,15 @@ bool RenderThread::CreateCommandPool()
 		GameThread::SendErrorPopup("failed to create command pool");
 		return false;
 	}
+	return true;
+}
+
+bool RenderThread::CreateDepthResources()
+{
+	VkFormat depthFormat = FindDepthFormat();
+	//CreateImage(res.x, res.y, depthFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, renderData.depthImage, renderData.depthImageMemory);
+	//renderData.depthImageView = CreateImageView(depthImage, depthFormat);
+
 	return true;
 }
 
@@ -954,12 +963,12 @@ bool RenderThread::CreateDescriptorSets()
 		VkDescriptorBufferInfo bufferInfo0 = {};
 		bufferInfo0.buffer = renderData.objectBuffers[i];
 		bufferInfo0.offset = 0;
-		bufferInfo0.range = sizeof(Vec4);
+		bufferInfo0.range = sizeof(Mat4);
 
 		VkDescriptorBufferInfo bufferInfo1 = {};
 		bufferInfo1.buffer = renderData.objectBuffers[i];
-		bufferInfo1.offset = sizeof(Vec4) * 4;
-		bufferInfo1.range = sizeof(Vec4) * OBJECT_COUNT;
+		bufferInfo1.offset = sizeof(Mat4);
+		bufferInfo1.range = sizeof(Vec4) * OBJECT_COUNT * 2;
 
 		VkWriteDescriptorSet descriptorWrite0 = {};
 		descriptorWrite0.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1027,12 +1036,17 @@ bool RenderThread::RecreateSwapchain()
 bool RenderThread::UpdateUniformBuffer(u32 image)
 {
 	Vec4 *dataPtr = renderData.objectBuffersMapped[image];
-	dataPtr[0] = Vec4(1.0f/res.x, 1.0f/res.y, 15, 15);
+	const auto &mat = appData.gm->GetViewProjectionMatrix();
+	const Vec4 *matPtr = reinterpret_cast<const Vec4*>(mat.content);
+	for (u32 i = 0; i < 4; i++)
+	{
+		dataPtr[i] = matPtr[i];
+	}
 
 	const auto& data = appData.gm->GetSimulationData();
-	if (data.size() < OBJECT_COUNT)
+	if (data.size() < OBJECT_COUNT * 2)
 		return true;
-	std::copy(data.data(), data.data() + OBJECT_COUNT, dataPtr + 4);
+	std::copy(data.data(), data.data() + OBJECT_COUNT * 2, dataPtr + 4);
 
 	return true;
 }
@@ -1050,6 +1064,36 @@ u32 RenderThread::FindMemoryType(u32 typeFilter, VkMemoryPropertyFlags propertie
 
 	GameThread::SendErrorPopup("failed to find suitable memory type!");
 	return -1;
+}
+
+VkFormat RenderThread::FindSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features)
+{
+	for (VkFormat format : candidates)
+	{
+		VkFormatProperties props;
+		vkGetPhysicalDeviceFormatProperties(appData.device.physical_device, format, &props);
+		if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features)
+		    return format;
+		else if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features)
+		    return format;
+	}
+
+	GameThread::SendErrorPopup("failed to find supported format!");
+	return VK_FORMAT_UNDEFINED;
+}
+
+VkFormat RenderThread::FindDepthFormat()
+{
+    return FindSupportedFormat(
+        {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
+    );
+}
+
+bool RenderThread::HasStencilComponent(VkFormat format)
+{
+    return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
 }
 
 bool RenderThread::DrawFrame()

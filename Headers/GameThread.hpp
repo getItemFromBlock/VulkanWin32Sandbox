@@ -11,7 +11,7 @@
 
 #include "Maths/Maths.hpp"
 
-const u32 OBJECT_COUNT = 3000;
+const u32 OBJECT_COUNT = 5000;
 const u32 CELL_SIZE = 64;
 const u32 BOID_CHUNK = 512;
 const float BOID_DIST_MAX = 64.0f;
@@ -27,18 +27,26 @@ struct PoolTask
 	float deltaTime;
 };
 
+enum WindowMessage : u32
+{
+	NONE = 0,
+	FULLSCREEN = 1,
+	LOCK_MOUSE = 2
+};
+
 class GameThread
 {
 public:
 	GameThread() = default;
 	~GameThread() = default;
 
-	void Init(HWND hwnd, Maths::IVec2 res);
+	void Init(HWND hwnd, u32 customMsg, Maths::IVec2 res);
 	void Resize(s32 x, s32 y);
 	bool HasFinished() const;
 	void Quit();
 	void MoveMouse(Maths::Vec2 delta);
-	void SetKeyState(u8 key, bool state);
+	void SetKeyState(u8 key, u8 scanCode, bool state);
+	void SendWindowMessage(WindowMessage msg, u64 payload = 0);
 	const std::vector<Maths::Vec4> &GetSimulationData() const;
 	const Maths::Mat4 &GetViewProjectionMatrix() const;
 
@@ -57,13 +65,17 @@ private:
 	std::bitset<256> keyDown = 0;
 	std::bitset<256> keyPress = 0;
 	std::bitset<256> keyToggle = 0;
+	std::bitset<256> keyCodesDown = 0;
+	std::bitset<256> keyCodesPress = 0;
+	std::bitset<256> keyCodesToggle = 0;
 	Maths::IVec2 res;
 	Maths::IVec2 cellCount;
 	std::atomic<u64> storedRes;
 	Maths::Vec2 storedDelta;
-	Maths::Vec3 position = Maths::Vec3(-5.30251f, 6.38824f, -7.8891f);
-	Maths::Vec2 rotation = Maths::Vec2(static_cast<f32>(M_PI_2) - 1.059891f, 0.584459f);
+	Maths::Vec3 position = Maths::Vec3(0,3,0);
+	Maths::Vec2 rotation = Maths::Vec2(0,0);
 	Maths::Quat rotationQuat;
+	u32 customMessage = 0;
 	f32 fov = 3.55f;
 	f64 appTime = 0;
 	Maths::Vec2 cursorPos;

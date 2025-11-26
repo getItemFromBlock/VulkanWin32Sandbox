@@ -24,5 +24,6 @@ void main()
 	float fact = pow(1.0 - fragUV.y, 2.0);
 	outColor = vec4(vec3(1.0, fact, fact), 1.0);
 	*/
-	outColor = vec4(fragNormal*2.0+1.0, 1.0);
+	float flip = fragNormal.x + fragNormal.y + fragNormal.z;
+	outColor = vec4(fragUV, 1-flip, 1.0);
 }

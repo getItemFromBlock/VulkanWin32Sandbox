@@ -40,7 +40,7 @@ vec4 QuatInverse(vec4 a)
 
 vec3 QuatMul(vec4 a, vec3 other)
 {
-	vec4 tmp = QuatMul(a, vec4(other, 0.0)) * QuatInverse(a);
+	vec4 tmp = QuatMul(QuatMul(a, vec4(other, 0.0)), QuatInverse(a));
 	return tmp.xyz;
 }
 

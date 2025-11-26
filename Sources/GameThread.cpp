@@ -6,7 +6,7 @@ HWND GameThread::hWnd = NULL;
 
 const u8 MOVEMENT_KEYS[6] =
 {
-	'A', 'E', 'W', 'D', 'Q', 'S'
+	32, 18, 31, 30, 16, 17
 };
 
 std::string GetFormattedTime()
@@ -25,10 +25,11 @@ float GameThread::NextFloat01()
 	return rand() / static_cast<float>(RAND_MAX);
 }
 
-void GameThread::Init(HWND hwnd, Maths::IVec2 resIn)
+void GameThread::Init(HWND hwnd, u32 customMsg, Maths::IVec2 resIn)
 {
 	hWnd = hwnd;
 	res = resIn;
+	customMessage = customMsg;
 	thread = std::thread(&GameThread::ThreadFunc, this);
 }
 
@@ -45,13 +46,26 @@ void GameThread::Resize(s32 x, s32 y)
 	storedRes = packed;
 }
 
-void GameThread::SetKeyState(u8 key, bool state)
+void GameThread::SetKeyState(u8 key, u8 scanCode, bool state)
 {
 	keyLock.lock();
 	keyDown.set(key, state);
+	keyCodesDown.set(scanCode, state);
 	if (state)
+	{
 		keyToggle.flip(key);
+		keyPress.set(key);
+		keyCodesToggle.flip(scanCode);
+		keyCodesPress.set(scanCode);
+	}
 	keyLock.unlock();
+}
+
+void GameThread::SendWindowMessage(WindowMessage msg, u64 payload)
+{
+	if (customMessage == 0)
+		return;
+	SendMessageA(hWnd, customMessage, msg, payload);
 }
 
 void GameThread::SendErrorPopup(const std::string &err)
@@ -113,8 +127,8 @@ void GameThread::InitThread()
 	accels.resize(OBJECT_COUNT);
 	rotations.resize(OBJECT_COUNT);
 
-	bufferA.resize(OBJECT_COUNT);
-	bufferB.resize(OBJECT_COUNT);
+	bufferA.resize(OBJECT_COUNT*2);
+	bufferB.resize(OBJECT_COUNT*2);
 
 	for (u32 i = 0; i < OBJECT_COUNT; i++)
 	{
@@ -224,15 +238,17 @@ void GameThread::UpdateBuffers()
 	auto &buf = currentBuf ? bufferA : bufferB;
 	for (u32 i = 0; i < OBJECT_COUNT; i++)
 	{
-		Vec2 v = velocities[i];
-		rotations[i] = -atan2f(v.y, v.x) - M_PI_2;
 
-		buf[i] = Vec4(positions[i].x, positions[i].y, rotations[i], 0.0f);
+		Quat rot = Quat::AxisAngle(Vec3(0,1,0), -rotations[i]);
+
+		buf[i*2] = Vec4(positions[i].x/10, 0, positions[i].y/10, 0);
+		buf[i*2+1] = Vec4(rot.v, rot.a);
 	}
 	
 	auto &mat = currentBuf ? vpA : vpB;
 	mat = Mat4::CreatePerspectiveProjectionMatrix(0.1f, 1000.0f, 70.0f, (float)(res.x) / res.y);
-	mat = Mat4::CreateViewMatrix(position, rotationQuat * Vec3(0,0,1), rotationQuat * Vec3(0,1,0)) * mat;
+	mat = mat * Mat4::CreateViewMatrix(position, position + rotationQuat * Vec3(0,0,-1), rotationQuat * Vec3(0,1,0));
+	mat = mat.TransposeMatrix();
 
 	currentBuf = !currentBuf;
 }
@@ -375,17 +391,20 @@ void GameThread::ThreadFunc()
 		storedDelta = Vec2();
 		mouseLock.unlock();
 		delta *= 0.005f;
-		rotation.x = Util::Clamp(rotation.x - delta.y, static_cast<f32>(-M_PI_2), static_cast<f32>(M_PI_2));
+		rotation.x = Util::Clamp(rotation.x + delta.y, static_cast<f32>(-M_PI_2), static_cast<f32>(M_PI_2));
 		rotation.y = Util::Mod(rotation.y + delta.x, static_cast<f32>(2 * M_PI));
 		Maths::Vec3 dir;
 		keyLock.lock();
 		for (u8 i = 0; i < 6; ++i)
 		{
-			f32 key = keyDown.test(MOVEMENT_KEYS[i]);
+			f32 key = keyCodesDown.test(MOVEMENT_KEYS[i]);
 			dir[i % 3] += (i > 2) ? -key : key;
 		}
 		f32 fovDir = static_cast<f32>(keyDown.test(VK_UP)) - static_cast<f32>(keyDown.test(VK_DOWN));
+		bool fullscreen = keyPress.test(VK_F11);
+		bool capture = keyPress.test(VK_ESCAPE);
 		keyPress.reset();
+		keyCodesPress.reset();
 		keyLock.unlock();
 		fov = Util::Clamp(fov + fovDir * deltaTime * fov, 0.5f, 100.0f);
 		rotationQuat = Quat::FromEuler(Vec3(rotation.x, rotation.y, 0.0f));
@@ -394,6 +413,12 @@ void GameThread::ThreadFunc()
 			dir = dir.Normalize() * deltaTime * 10;
 			position += rotationQuat * dir;
 		}
+
+		if (fullscreen)
+			SendWindowMessage(FULLSCREEN);
+		if (capture)
+			SendWindowMessage(LOCK_MOUSE);
+
 		POINT p;
 		GetCursorPos(&p);
 		ScreenToClient(hWnd, &p);
@@ -405,6 +430,7 @@ void GameThread::ThreadFunc()
 		// Hard cap movement to 30 fps so that deltatime does not gets too big
 		if (deltaTime > 0.033f)
 			deltaTime = 0.033f;
+
 		if (appTime > 1)
 		{
 			PreUpdate();

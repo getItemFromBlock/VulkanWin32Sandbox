@@ -33,6 +33,7 @@ struct SavedInfos
 LRESULT CALLBACK WndProc(_In_ HWND hWnd, _In_ UINT message, _In_ WPARAM wParam, _In_ LPARAM lParam);
 void OnMoveMouse(HWND hwnd, bool reset = false);
 void ToggleFullscreen(HWND hwnd, bool full);
+void HandleCustomMessage(HWND hWnd, WindowMessage msg, u64 payload);
 
 std::wstring GetLastErrorAsString()
 {
@@ -120,7 +121,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 
 		customMessage = RegisterWindowMessageA("VulkanWin32 Custom Message");
 
-		gh.Init(hWnd, Maths::IVec2(800, 600));
+		gh.Init(hWnd, customMessage, Maths::IVec2(800, 600));
 		rh.Init(hWnd, hInstance, &gh, Maths::IVec2(800, 600));
 
 		// Main message loop:
@@ -178,30 +179,9 @@ LRESULT CALLBACK WndProc(_In_ HWND hWnd, _In_ UINT message, _In_ WPARAM wParam, 
 		if (isExtendedKey)
 			scanCode = MAKEWORD(scanCode, 0xE0);
 
-		gh.SetKeyState((u8)(wParam), isKeyDown);
-		if (isKeyDown)
-		{
-			if (wParam == VK_F11)
-				ToggleFullscreen(hWnd, !fullscreen);
-			else if ((lParam & 0x20000000) && wParam == VK_F4)
-				DestroyWindow(hWnd);
-		}
-		/*
-		if (wParam == VK_ESCAPE)
-		{
-			captured = !captured;
-			if (captured)
-			{
-				OnMoveMouse(hWnd, true);
-				SetCursor(cursorHide);
-			}
-			else
-			{
-				return DefWindowProc(hWnd, message, wParam, lParam);
-			}
-			break;
-		}
-		*/
+		gh.SetKeyState((u8)(wParam), scanCode, isKeyDown);
+		if (isKeyDown && (lParam & 0x20000000) && wParam == VK_F4)
+			DestroyWindow(hWnd);
 		break;
 	}
 	case WM_MOUSEMOVE:
@@ -225,9 +205,36 @@ LRESULT CALLBACK WndProc(_In_ HWND hWnd, _In_ UINT message, _In_ WPARAM wParam, 
 		break;
 	}
 	default:
+		if (message == customMessage)
+		{
+			HandleCustomMessage(hWnd, (WindowMessage)wParam, lParam);
+			return 0;
+		}
 		return DefWindowProc(hWnd, message, wParam, lParam);
 	}
 	return 0;
+}
+
+void HandleCustomMessage(HWND hWnd, WindowMessage msg, u64 payload)
+{
+	switch (msg)
+	{
+	case NONE:
+		break;
+	case FULLSCREEN:
+		ToggleFullscreen(hWnd, !fullscreen);
+		break;
+	case LOCK_MOUSE:
+		captured = !captured;
+		if (captured)
+		{
+			OnMoveMouse(hWnd, true);
+			SetCursor(cursorHide);
+		}
+		break;
+	default:
+		break;
+	}
 }
 
 void OnMoveMouse(HWND hwnd, bool reset)
