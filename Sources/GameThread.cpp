@@ -124,8 +124,6 @@ void GameThread::InitThread()
 
 	const u32 threadCount = Util::MaxU(std::thread::hardware_concurrency() - 4, std::thread::hardware_concurrency() / 2);
 	threadPool.resize(threadCount);
-	// Need one extra slot for the "main threa" (Game Thread)
-	threadCells.resize(threadCount+1);
 
 	for (u32 i = 0; i < threadCount; i++)
 	{
@@ -167,8 +165,6 @@ void GameThread::PreUpdate()
 	if (cells.size() < totalCells)
 	{
 		cells.resize(totalCells);
-		for (u32 i = 0; i < threadCells.size(); i++)
-			threadCells[i].resize(totalCells);
 	}
 
 	for (u32 i = 0; i < OBJECT_COUNT; i++)
@@ -457,7 +453,8 @@ void GameThread::ThreadPoolFunc()
 {
 	while (!poolExit)
 	{
-		if (!ThreadPoolUpdate())
-			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		ThreadPoolUpdate();
+		//if (!ThreadPoolUpdate())
+		//	std::this_thread::sleep_for(std::chrono::milliseconds(5));
 	}
 }

@@ -79,7 +79,6 @@ private:
 	std::atomic_bool currentBuf = false;
 
 	std::vector<std::thread> threadPool;
-	std::vector<std::vector<std::vector<u32>>> threadCells;
 	std::vector<PoolTask> tasks;
 	std::atomic_uint32_t taskCounter;
 	std::atomic_bool poolExit;

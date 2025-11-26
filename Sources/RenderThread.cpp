@@ -1027,7 +1027,7 @@ bool RenderThread::UpdateUniformBuffer(u32 image)
 	const auto& data = appData.gm->GetSimulationData();
 	if (data.size() < OBJECT_COUNT)
 		return true;
-	std::copy(data.data(), data.data() + OBJECT_COUNT, dataPtr + 1);
+	std::copy(data.data(), data.data() + OBJECT_COUNT, dataPtr + 4);
 
 	return true;
 }
