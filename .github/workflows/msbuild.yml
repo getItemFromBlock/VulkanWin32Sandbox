@@ -50,6 +50,11 @@ jobs:
         Start-Process -FilePath $vulkanInstaller -Wait -ArgumentList @("--accept-licenses", "--default-answer", "--confirm-command", "install")
         Remove-Item -Path $vulkanInstaller
 
+    - run: |
+          "VULKAN_SDK=D:/a/VulkanWin32Engine/VulkanWin32Engine/VULKAN_SDK" >> $env:GITHUB_ENV
+    - run: |
+          $env:VULKAN_SDK
+
     - name: Add MSBuild to PATH
       uses: microsoft/setup-msbuild@v1.0.2
 
