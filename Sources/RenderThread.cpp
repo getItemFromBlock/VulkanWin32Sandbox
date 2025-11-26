@@ -194,9 +194,9 @@ VkSurfaceKHR RenderThread::CreateSurfaceWin32(VkInstance instance, HINSTANCE hIn
 			BSTR s = NULL;
 
 			if (e && SUCCEEDED(e->GetDescription(&s)))
-				text += L"Unknown error";
-			else
 				text += s;
+			else
+				text += L"Unknown error";
 			GameThread::SendErrorPopup(text);
 		}
 		surface = VK_NULL_HANDLE;
@@ -231,7 +231,7 @@ bool RenderThread::InitDevice()
 
 	if (!instanceRet)
 	{
-		GameThread::SendErrorPopup(instanceRet.error().message());
+		GameThread::SendErrorPopup("Error creating vulkan instance: " + instanceRet.error().message());
 		return false;
 	}
 	appData.instance = instanceRet.value();
@@ -265,7 +265,7 @@ bool RenderThread::InitDevice()
 	auto deviceRet = deviceBuilder.build();
 	if (!deviceRet)
 	{
-		GameThread::SendErrorPopup(deviceRet.error().message());
+		GameThread::SendErrorPopup("Error creating device: " + deviceRet.error().message());
 		return false;
 	}
 	appData.device = deviceRet.value();
@@ -296,7 +296,7 @@ bool RenderThread::CreateSwapchain()
 	}
 	if (!swapRet)
 	{
-		GameThread::SendErrorPopup(swapRet.error().message() + ' ' + std::to_string(swapRet.vk_result()));
+		GameThread::SendErrorPopup("Error creating swapchain: " + swapRet.error().message() + ' ' + std::to_string(swapRet.vk_result()));
 		return false;
 	}
 	vkb::destroy_swapchain(appData.swapchain);
