@@ -137,30 +137,6 @@ bool RenderThread::InitVulkan()
 void RenderThread::LoadAssets()
 {
 	sceneData.mesh.CreateDefaultCube();
-	/*
-	ModelLoader::LoadModel(meshes, materials, textures, "Assets/Scenes/monkey.obj");
-	ModelLoader::LoadCubemap(cubemaps, "Assets/Cubemaps/hall.cbm");
-	
-	//materials[5].diffuseColor = Vec3(1,1,0);
-	materials[5].shouldTeleport = 1;
-	materials[5].posDisplacement = Vec3(0, 0, -15);
-	materials[5].rotDisplacement = Quat();
-
-	//materials[6].diffuseColor = Vec3(1, 1, 0);
-	materials[6].shouldTeleport = 1;
-	materials[6].posDisplacement = Vec3(0, 0, 15);
-	materials[6].rotDisplacement = Quat();
-	kernels.LoadTextures(textures);
-	kernels.LoadCubemaps(cubemaps);
-	kernels.LoadMaterials(materials);
-	kernels.LoadMeshes(meshes);
-
-	for (u32 i = 0; i < meshes.size(); ++i)
-	{
-		kernels.UpdateMeshVertices(&meshes[i], i, Vec3(0, 0, 0), Quat(), Vec3(1));
-	}
-	kernels.Synchronize();
-	*/
 }
 
 void RenderThread::UnloadAssets()

@@ -256,8 +256,9 @@ void GameThread::UpdateBuffers()
 	auto &buf = currentBuf ? bufferA : bufferB;
 	for (u32 i = 0; i < OBJECT_COUNT; i++)
 	{
-
-		Quat rot = Quat::AxisAngle(Vec3(0,1,0), -rotations[i]);
+		Vec2 v = velocities[i];
+		rotations[i] = -atan2f(v.y, v.x) - M_PI_2;
+		Quat rot = Quat::AxisAngle(Vec3(0,1,0), rotations[i]);
 
 		buf[i*2] = Vec4(positions[i].x/10, 0, positions[i].y/10, 0);
 		buf[i*2+1] = Vec4(rot.v, rot.a);
@@ -424,6 +425,7 @@ void GameThread::ThreadFunc()
 		f32 fovDir = static_cast<f32>(keyDown.test(VK_UP)) - static_cast<f32>(keyDown.test(VK_DOWN));
 		bool fullscreen = keyPress.test(VK_F11);
 		bool capture = keyPress.test(VK_ESCAPE);
+		bool shift = keyDown.test(VK_SHIFT);
 		keyPress.reset();
 		keyCodesPress.reset();
 		keyLock.unlock();
@@ -431,7 +433,7 @@ void GameThread::ThreadFunc()
 		rotationQuat = Quat::FromEuler(Vec3(rotation.x, rotation.y, 0.0f));
 		if (dir.Dot())
 		{
-			dir = dir.Normalize() * deltaTime * 10;
+			dir = dir.Normalize() * deltaTime * (shift ? 50 : 10);
 			position += rotationQuat * dir;
 		}
 
