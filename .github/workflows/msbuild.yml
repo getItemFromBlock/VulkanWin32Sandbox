@@ -44,8 +44,8 @@ jobs:
 
     - name: Setup Vulkan
       if: runner.os == 'Windows' && steps.cache-vulkan-sdk.outputs.cache-hit != 'true'
-      run: |
-        $vulkanInstaller = "VulkanSDK-$env:VULKAN_SDK_VERSION-Installer.exe"
+      run:
+        $vulkanInstaller = "vulkansdk-windows-X64-$env:VULKAN_SDK_VERSION.exe"
         Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/$env:VULKAN_SDK_VERSION/windows/${vulkanInstaller}" -OutFile $vulkanInstaller
         Start-Process -FilePath $vulkanInstaller -Wait -ArgumentList @("--accept-licenses", "--default-answer", "--confirm-command", "install")
         Remove-Item -Path $vulkanInstaller
