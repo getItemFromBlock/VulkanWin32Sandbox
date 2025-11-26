@@ -4,30 +4,54 @@
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec2 inUV;
 layout(location = 2) in vec3 inColor;
+layout(location = 3) in vec3 inNormal;
+
+struct ObjectData
+{
+	vec4 position;
+	vec4 rotation;
+};
 
 layout(binding = 0) uniform UniformBufferObject
 {
-    vec2 invRes;
-	vec2 scale;
+    mat4 vp;
 } ubo;
 
 layout(std140, binding = 1) readonly buffer ObjectBuffer
 {
-	vec4 objects[];
+	ObjectData objects[];
 } objectBuffer;
 
 layout (location = 0) out vec2 fragUV;
 layout (location = 1) out vec3 fragColor;
+layout (location = 2) out vec3 fragNormal;
+
+
+
+vec4 QuatMul(vec4 a, vec4 other)
+{
+	return vec4(other.xyz * a.w + a.xyz * other.w + cross(a.xyz, other.xyz), a.w*other.w - dot(a.xyz, other.xyz));
+}
+
+vec4 QuatInverse(vec4 a)
+{
+	return normalize(vec4(-a.xyz, a.w));
+}
+
+vec3 QuatMul(vec4 a, vec3 other)
+{
+	vec4 tmp = QuatMul(a, vec4(other, 0.0)) * QuatInverse(a);
+	return tmp.xyz;
+}
 
 void main()
 {
-	vec4 objectData = objectBuffer.objects[gl_InstanceIndex];
-	float cr = cos(objectData.z);
-	float sr = sin(objectData.z);
-	vec2 dest = vec2(	inPosition.x * cr + inPosition.y * sr,
-						inPosition.y * cr - inPosition.x * sr);
-	dest = (dest * ubo.scale + objectData.xy) * ubo.invRes * 2.0 - 1.0;
-	gl_Position = vec4(dest, inPosition.z, 1.0);
+	ObjectData data = objectBuffer.objects[gl_InstanceIndex];
+	vec3 dest = QuatMul(data.rotation, inPosition);
+	dest += data.position.xyz;
+	gl_Position = vec4(dest, 1.0) * ubo.vp;
+
 	fragUV = inUV;
 	fragColor = inColor;
+	fragNormal = QuatMul(data.rotation, inNormal);
 }

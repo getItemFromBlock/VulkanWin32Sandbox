@@ -58,7 +58,7 @@ void GameThread::SendErrorPopup(const std::string &err)
 {
 	LogMessage(err);
 #ifdef NDEBUG
-	MessageBoxA(hWnd, err.c_str(), "Error!", MB_YESNO);
+	MessageBoxA(hWnd, err.c_str(), "Error!", MB_OK);
 #else
 	if (MessageBoxA(hWnd, (err + "\nBreak?").c_str(), "Error!", MB_YESNO) == IDYES)
 		DebugBreak();
@@ -69,7 +69,7 @@ void GameThread::SendErrorPopup(const std::wstring &err)
 {
 	LogMessage(err);
 #ifdef NDEBUG
-	MessageBoxW(hWnd, err.c_str(), L"Error!", MB_YESNO);
+	MessageBoxW(hWnd, err.c_str(), L"Error!", MB_OK);
 #else
 	if (MessageBoxW(hWnd, (err + L"\nBreak?").c_str(), L"Error!", MB_YESNO) == IDYES)
 		DebugBreak();
@@ -222,7 +222,6 @@ void GameThread::PostUpdate(float deltaTime)
 void GameThread::UpdateBuffers()
 {
 	auto &buf = currentBuf ? bufferA : bufferB;
-
 	for (u32 i = 0; i < OBJECT_COUNT; i++)
 	{
 		Vec2 v = velocities[i];
@@ -230,6 +229,11 @@ void GameThread::UpdateBuffers()
 
 		buf[i] = Vec4(positions[i].x, positions[i].y, rotations[i], 0.0f);
 	}
+	
+	auto &mat = currentBuf ? vpA : vpB;
+	mat = Mat4::CreatePerspectiveProjectionMatrix(0.1f, 1000.0f, 70.0f, (float)(res.x) / res.y);
+	mat = Mat4::CreateViewMatrix(position, rotationQuat * Vec3(0,0,1), rotationQuat * Vec3(0,1,0)) * mat;
+
 	currentBuf = !currentBuf;
 }
 
@@ -384,11 +388,11 @@ void GameThread::ThreadFunc()
 		keyPress.reset();
 		keyLock.unlock();
 		fov = Util::Clamp(fov + fovDir * deltaTime * fov, 0.5f, 100.0f);
-		Quat q = Quat::FromEuler(Vec3(rotation.x, rotation.y, 0.0f));
+		rotationQuat = Quat::FromEuler(Vec3(rotation.x, rotation.y, 0.0f));
 		if (dir.Dot())
 		{
 			dir = dir.Normalize() * deltaTime * 10;
-			position += q * dir;
+			position += rotationQuat * dir;
 		}
 		POINT p;
 		GetCursorPos(&p);

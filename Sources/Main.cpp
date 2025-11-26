@@ -15,6 +15,7 @@ WCHAR szClassName[] = L"MainClass";
 WCHAR szTitle[] = L"Vulkan Demo";
 HCURSOR cursorHide;
 HRGN area;
+UINT customMessage = 0;
 bool captured = false;
 bool fullscreen = false;
 RenderThread rh;
@@ -116,6 +117,8 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 			MessageBoxW(hWnd, L"Call to CreateWindow failed!", szTitle, NULL);
 			return 1;
 		}
+
+		customMessage = RegisterWindowMessageA("VulkanWin32 Custom Message");
 
 		gh.Init(hWnd, Maths::IVec2(800, 600));
 		rh.Init(hWnd, hInstance, &gh, Maths::IVec2(800, 600));

@@ -123,7 +123,7 @@ private:
 	VkSurfaceKHR CreateSurfaceWin32(VkInstance instance, HINSTANCE hInstance, HWND window, VkAllocationCallbacks *allocator = nullptr);
 	VkShaderModule CreateShaderModule(const std::string &code);
 	VkVertexInputBindingDescription GetBindingDescription();
-	std::array<VkVertexInputAttributeDescription, 3> GetAttributeDescriptions();
+	std::array<VkVertexInputAttributeDescription, 4> GetAttributeDescriptions();
 	bool InitVulkan();
 	bool InitDevice();
 	bool CreateSwapchain();

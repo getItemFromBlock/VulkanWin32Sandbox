@@ -11,7 +11,7 @@
 
 #include "Maths/Maths.hpp"
 
-const u32 OBJECT_COUNT = 30000;
+const u32 OBJECT_COUNT = 3000;
 const u32 CELL_SIZE = 64;
 const u32 BOID_CHUNK = 512;
 const float BOID_DIST_MAX = 64.0f;
@@ -63,6 +63,7 @@ private:
 	Maths::Vec2 storedDelta;
 	Maths::Vec3 position = Maths::Vec3(-5.30251f, 6.38824f, -7.8891f);
 	Maths::Vec2 rotation = Maths::Vec2(static_cast<f32>(M_PI_2) - 1.059891f, 0.584459f);
+	Maths::Quat rotationQuat;
 	f32 fov = 3.55f;
 	f64 appTime = 0;
 	Maths::Vec2 cursorPos;

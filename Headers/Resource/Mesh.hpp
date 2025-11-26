@@ -9,8 +9,10 @@ namespace Resource
 		Maths::Vec3 pos;
 		Maths::Vec2 uv;
 		Maths::Vec3 col;
+		Maths::Vec3 norm;
 
-		Vertex(Maths::Vec3 position, Maths::Vec2 texCoords, Maths::Vec3 color) : pos(position), uv(texCoords), col(color) {}
+		Vertex(Maths::Vec3 position, Maths::Vec2 texCoords, Maths::Vec3 color, Maths::Vec3 normal)
+			: pos(position), uv(texCoords), col(color), norm(normal) {}
 		Vertex() {}
 	};
 
