@@ -156,7 +156,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 		GetWindowRect(hWnd, &windowRect);
 		windowRect.right = windowRect.left + launchArgs.defaultRes.x;
 		windowRect.bottom = windowRect.top + launchArgs.defaultRes.y;
-		AdjustWindowRectEx(&windowRect, GetWindowLongPtrW(hWnd, GWL_STYLE), false, lExStyle);
+		AdjustWindowRectEx(&windowRect, (DWORD)GetWindowLongPtrW(hWnd, GWL_STYLE), false, (DWORD)lExStyle);
 		
 		SetWindowPos(hWnd, NULL, 0, 0, windowRect.right - windowRect.left, windowRect.bottom - windowRect.top, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOZORDER | SWP_NOOWNERZORDER);
 		SetLayeredWindowAttributes(hWnd, RGB(255,0,0), 255, LWA_ALPHA);
@@ -214,7 +214,7 @@ LRESULT CALLBACK WndProc(_In_ HWND hWnd, _In_ UINT message, _In_ WPARAM wParam, 
 	{
 		LPMINMAXINFO lpMMI = (LPMINMAXINFO)lParam;
 		lpMMI->ptMinTrackSize.x = 64;
-		lpMMI->ptMinTrackSize.y = 64;
+		lpMMI->ptMinTrackSize.y = 128;
 		break;
 	}
 	case WM_KEYDOWN:

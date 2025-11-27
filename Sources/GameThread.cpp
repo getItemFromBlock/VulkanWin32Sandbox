@@ -263,7 +263,7 @@ void GameThread::PostUpdate(float deltaTime)
 		ThreadPoolUpdate();
 }
 
-void GameThread::UpdateBuffers()
+void GameThread::UpdateBuffers(const Mat4 &mat)
 {
 	auto &buf = currentBuf ? bufferA : bufferB;
 	for (u32 i = 0; i < OBJECT_COUNT; i++)
@@ -276,10 +276,8 @@ void GameThread::UpdateBuffers()
 		buf[i*2+1] = Vec4(rot.v, rot.a);
 	}
 	
-	auto &mat = currentBuf ? vpA : vpB;
-	mat = Mat4::CreatePerspectiveProjectionMatrix(0.1f, 1000.0f, 70.0f, (float)(res.x) / res.y);
-	mat = mat * Mat4::CreateViewMatrix(position, position + rotationQuat * Vec3(0,0,-1), rotationQuat * Vec3(0,1,0));
-	mat = mat.TransposeMatrix();
+	auto &matRef = currentBuf ? vpA : vpB;
+	matRef = mat.TransposeMatrix();
 
 	currentBuf = !currentBuf;
 }
@@ -441,7 +439,7 @@ void GameThread::ThreadFunc()
 		keyPress.reset();
 		keyCodesPress.reset();
 		keyLock.unlock();
-		fov = Util::Clamp(fov + fovDir * deltaTime * fov, 0.5f, 100.0f);
+		fov = Util::Clamp(fov + fovDir * deltaTime * fov, 0.5f, 175.0f);
 		rotationQuat = Quat::FromEuler(Vec3(rotation.x, rotation.y, 0.0f));
 		if (dir.Dot())
 		{
@@ -454,12 +452,36 @@ void GameThread::ThreadFunc()
 		if (capture)
 			SendWindowMessage(LOCK_MOUSE);
 
+		Mat4 vp = Mat4::CreatePerspectiveProjectionMatrix(0.1f, 1000.0f, fov, (float)(res.x) / res.y);
+		vp = vp * Mat4::CreateViewMatrix(position, position + rotationQuat * Vec3(0,0,-1), rotationQuat * Vec3(0,1,0));
+
+		bool click = GetKeyState(VK_LBUTTON) < 0;
 		POINT p;
 		GetCursorPos(&p);
 		ScreenToClient(hWnd, &p);
-		bool click = GetKeyState(VK_LBUTTON) < 0;
-		cursorPos.x = (float)(p.x);
-		cursorPos.y = (float)(p.y);
+		Vec2 localPos = Vec2((float)(p.x), (float)(p.y));
+		float ratio = tanf(Util::ToRadians(fov / 2.0f));
+		Vec3 mouseDir = Vec3((localPos.x * 2 / res.x) - 1, (localPos.y * 2 / res.y) - 1, -1);
+		mouseDir = Vec3(mouseDir.x * ratio * res.x / res.y, -mouseDir.y * ratio, -1);
+		Vec3 rayDir = rotationQuat * mouseDir.Normalize();
+		float dt = Vec3(0,1,0).Dot(rayDir);
+		if (abs(dt) < 0.0001f)
+		{
+			click = false;
+		}
+		else
+		{
+		    float t = -position.Dot(Vec3(0,1,0)) / dt;
+			if (t <= 0.0001f)
+			{
+				click = false;
+			}
+			else
+			{
+				rayDir = position + rayDir * t;
+			}
+		}
+		cursorPos = Vec2(rayDir.x, rayDir.z) * 10;
 		mousePressed = click;
 		
 		// Hard cap movement to 30 fps so that deltatime does not gets too big
@@ -475,7 +497,7 @@ void GameThread::ThreadFunc()
 		else
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		
-		UpdateBuffers();
+		UpdateBuffers(vp);
 
 		if (isUnitTest && appTime > 10.0f)
 			SendWindowMessage(EXIT_WINDOW);

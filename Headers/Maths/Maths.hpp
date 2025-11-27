@@ -477,7 +477,7 @@ namespace Maths
 
 		Vec4 operator*(const Vec4& a) const;
 
-		 static Mat4 Identity();
+		static Mat4 Identity();
 
 		static Mat4 CreateTransformMatrix(const Vec3& position, const Vec3& rotation, const Vec3& scale);
 
@@ -520,7 +520,7 @@ namespace Maths
 
 		Vec3 GetScaleFromTranslation() const;
 
-		Mat4 TransposeMatrix();
+		Mat4 TransposeMatrix() const;
 
 		inline f32& operator[](const size_t a);
 

@@ -80,7 +80,7 @@ private:
 	Maths::Vec2 rotation = Maths::Vec2(0, (float)(M_PI*5/4));
 	Maths::Quat rotationQuat;
 	u32 customMessage = 0;
-	f32 fov = 3.55f;
+	f32 fov = 70.0f;
 	f64 appTime = 0;
 	Maths::Vec2 cursorPos;
 	std::atomic_bool mousePressed = false;
@@ -110,7 +110,7 @@ private:
 	void PreUpdate();
 	void Update(float deltaTime);
 	void PostUpdate(float deltaTime);
-	void UpdateBuffers();
+	void UpdateBuffers(const Maths::Mat4 &mat);
 	float NextFloat01();
 	s32 GetCell(Maths::IVec2 pos, Maths::IVec2 &dt);
 	void ThreadPoolFunc();
