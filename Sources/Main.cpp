@@ -207,7 +207,7 @@ LRESULT CALLBACK WndProc(_In_ HWND hWnd, _In_ UINT message, _In_ WPARAM wParam, 
 		if (isExtendedKey)
 			scanCode = MAKEWORD(scanCode, 0xE0);
 
-		gh.SetKeyState((u8)(wParam), scanCode, isKeyDown);
+		gh.SetKeyState((u8)(wParam), (u8)(scanCode), isKeyDown);
 		if (isKeyDown && (lParam & 0x20000000) && wParam == VK_F4)
 			DestroyWindow(hWnd);
 		break;

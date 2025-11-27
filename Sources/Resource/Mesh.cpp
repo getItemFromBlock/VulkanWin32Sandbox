@@ -26,7 +26,7 @@ void Mesh::CreateDefaultCube()
 		{
 			u32 id = faceIndices[j];
 
-			Vec3 point = Vec3(id & 0x1 ? 1 : -1, id & 0x2 ? 1 : -1, flip ? -1 : 1);
+			Vec3 point = Vec3(id & 0x1 ? 1.0f : -1.0f, id & 0x2 ? 1.0f : -1.0f, flip ? -1.0f : 1.0f);
 			Vec3 vert = Vec3(	point[remapIndices[globalIndex + 0]],
 								point[remapIndices[globalIndex + 1]],
 								point[remapIndices[globalIndex + 2]]);
@@ -35,7 +35,7 @@ void Mesh::CreateDefaultCube()
 			normal[remapIndices[globalIndex + 2]] = point.z;
 			Vec2 uv = Vec2(-point.x, point.y) * 0.5f + 0.5f;
 			u32 counter = i*6+j;
-			Vec3 color = Vec3(counter & 0x1 ? 1 : 0, counter & 0x2 ? 1 : 0, counter & 0x4 ? 1 : 0);
+			Vec3 color = Vec3(counter & 0x1 ? 1.0f : 0.0f, counter & 0x2 ? 1.0f : 0.0f, counter & 0x4 ? 1.0f : 0.0f);
 
 			vertices.push_back(Vertex(vert, uv, color, normal));
 			if (flip && (j == 2 || j == 5))

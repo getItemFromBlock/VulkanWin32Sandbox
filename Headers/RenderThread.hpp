@@ -75,7 +75,7 @@ struct RenderData
 	VkDescriptorPool descriptorPool;
 	std::vector<VkDescriptorSet> descriptorSets;
 
-	u64 currentFrame = 0;
+	u32 currentFrame = 0;
 };
 
 struct SceneData

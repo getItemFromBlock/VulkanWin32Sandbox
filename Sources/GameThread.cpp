@@ -150,7 +150,7 @@ void GameThread::InitThread()
 	SetThreadDescription(GetCurrentThread(), L"Game Thread");
 	std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
 	start = now.time_since_epoch();
-	srand(std::chrono::duration_cast<std::chrono::milliseconds>(start).count());
+	srand((u32)(std::chrono::duration_cast<std::chrono::milliseconds>(start).count()));
 
 	positions.resize(OBJECT_COUNT);
 	velocities.resize(OBJECT_COUNT);
@@ -225,9 +225,9 @@ void GameThread::PreUpdate()
 void GameThread::Update(float deltaTime)
 {
 	taskLock.lock();
-	for (u32 cx = 0; cx < cellCount.x; cx++)
+	for (s32 cx = 0; cx < cellCount.x; cx++)
 	{
-		for (u32 cy = 0; cy < cellCount.y; cy++)
+		for (s32 cy = 0; cy < cellCount.y; cy++)
 		{
 			PoolTask task;
 			task.taskID = 0;
@@ -237,7 +237,7 @@ void GameThread::Update(float deltaTime)
 			tasks.push_back(task);
 		}
 	}
-	taskCounter = tasks.size();
+	taskCounter = (u32)(tasks.size());
 	taskLock.unlock();
 
 	while (taskCounter != 0)
@@ -256,7 +256,7 @@ void GameThread::PostUpdate(float deltaTime)
 		task.cellY = Util::MinU(x + BOID_CHUNK, OBJECT_COUNT);
 		tasks.push_back(task);
 	}
-	taskCounter = tasks.size();
+	taskCounter = (u32)(tasks.size());
 	taskLock.unlock();
 
 	while (taskCounter != 0)
@@ -269,7 +269,7 @@ void GameThread::UpdateBuffers()
 	for (u32 i = 0; i < OBJECT_COUNT; i++)
 	{
 		Vec2 v = velocities[i];
-		rotations[i] = -atan2f(v.y, v.x) - M_PI_2;
+		rotations[i] = -atan2f(v.y, v.x) - (float)(M_PI_2);
 		Quat rot = Quat::AxisAngle(Vec3(0,1,0), rotations[i]);
 
 		buf[i*2] = Vec4(positions[i].x/10, 0, positions[i].y/10, 0);
@@ -342,9 +342,9 @@ void GameThread::ProcessCellUpdate(u32 cx, u32 cy, float deltaTime)
 
 		if (count != 0)
 		{
-			accels[boid1] = (globalPos / count) * 700 + (globalRot / count) * 2500;
+			accels[boid1] = (globalPos / (float)(count)) * 700 + (globalRot / (float)(count)) * 2500;
 			if (avoidCount != 0)
-				accels[boid1] += (avoidDir / avoidCount) * 9000;
+				accels[boid1] += (avoidDir / (float)(avoidCount)) * 9000;
 			accels[boid1] *= deltaTime;
 		}
 		else
@@ -445,7 +445,7 @@ void GameThread::ThreadFunc()
 		rotationQuat = Quat::FromEuler(Vec3(rotation.x, rotation.y, 0.0f));
 		if (dir.Dot())
 		{
-			dir = dir.Normalize() * deltaTime * (shift ? 50 : 10);
+			dir = dir.Normalize() * deltaTime * (shift ? 50.0f : 10.0f);
 			position += rotationQuat * dir;
 		}
 
@@ -458,8 +458,8 @@ void GameThread::ThreadFunc()
 		GetCursorPos(&p);
 		ScreenToClient(hWnd, &p);
 		bool click = GetKeyState(VK_LBUTTON) < 0;
-		cursorPos.x = p.x;
-		cursorPos.y = p.y;
+		cursorPos.x = (float)(p.x);
+		cursorPos.y = (float)(p.y);
 		mousePressed = click;
 		
 		// Hard cap movement to 30 fps so that deltatime does not gets too big
