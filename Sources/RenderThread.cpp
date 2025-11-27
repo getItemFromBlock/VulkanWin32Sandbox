@@ -8,6 +8,14 @@
 
 using namespace Maths;
 
+const char *alphaBitStrings[] =
+{
+	"VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR",
+    "VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR",
+    "VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR",
+    "VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR"
+};
+
 std::string LoadFile(const std::string &path)
 {
 	std::ifstream file = std::ifstream(path, std::ios_base::binary | std::ios_base::ate);
@@ -24,13 +32,13 @@ std::string LoadFile(const std::string &path)
 	return result;
 }
 
-void RenderThread::Init(HWND hwnd, HINSTANCE hinstance, GameThread *gm, Maths::IVec2 resIn)
+void RenderThread::Init(HWND hwnd, HINSTANCE hinstance, GameThread *gm, Maths::IVec2 resIn, u32 targetDevice)
 {
 	appData.hWnd = hwnd;
 	appData.hInstance = hinstance;
 	appData.gm = gm;
 	res = resIn;
-	thread = std::thread(&RenderThread::ThreadFunc, this);
+	thread = std::thread(&RenderThread::ThreadFunc, this, targetDevice);
 }
 
 void RenderThread::Resize(s32 x, s32 y)
@@ -74,12 +82,12 @@ void RenderThread::InitThread()
 	start = now.time_since_epoch();
 }
 
-void RenderThread::ThreadFunc()
+void RenderThread::ThreadFunc(u32 targetDevice)
 {
 	InitThread();
 	LoadAssets();
 
-	if (!InitVulkan())
+	if (!InitVulkan(targetDevice))
 	{
 		crashed = true;
 		return;
@@ -118,9 +126,9 @@ void RenderThread::ThreadFunc()
 		crashed = true;
 }
 
-bool RenderThread::InitVulkan()
+bool RenderThread::InitVulkan(u32 targetDevice)
 {
-	return	InitDevice() &&
+	return	InitDevice(targetDevice) &&
 			CreateSwapchain() &&
 			GetQueues() &&
 			CreateRenderPass() &&
@@ -182,7 +190,7 @@ VkSurfaceKHR RenderThread::CreateSurfaceWin32(VkInstance instance, HINSTANCE hIn
 	return surface;
 }
 
-bool RenderThread::InitDevice()
+bool RenderThread::InitDevice(u32 targetDevice)
 {
 	vkb::InstanceBuilder instanceBuilder;
 	instanceBuilder.enable_extension(VK_KHR_SURFACE_EXTENSION_NAME);
@@ -217,13 +225,13 @@ bool RenderThread::InitDevice()
 	appData.surface = CreateSurfaceWin32(appData.instance, appData.hInstance, appData.hWnd);
 
 	vkb::PhysicalDeviceSelector physDeviceSelector(appData.instance);
-	auto physDeviceRet = physDeviceSelector.set_surface(appData.surface).select();
-	if (!physDeviceRet)
+	auto devices = physDeviceSelector.set_surface(appData.surface).select_devices();
+	if (!devices)
 	{
-		std::string err = physDeviceRet.error().message() + '\n';
-		if (physDeviceRet.error() == vkb::PhysicalDeviceError::no_suitable_device)
+		std::string err = "No suitable GPU found: " + devices.error().message() + '\n';
+		if (devices.error() == vkb::PhysicalDeviceError::no_suitable_device)
 		{
-			const auto &detailedReasons = physDeviceRet.detailed_failure_reasons();
+			const auto &detailedReasons = devices.detailed_failure_reasons();
 			if (!detailedReasons.empty())
 			{
 				err += "GPU Selection failure reasons:\n";
@@ -234,7 +242,19 @@ bool RenderThread::InitDevice()
 		GameThread::SendErrorPopup(err);
 		return false;
 	}
-	vkb::PhysicalDevice physicalDevice = physDeviceRet.value();
+	GameThread::LogMessage("Suitable GPU(s):\n");
+	auto &deviceList = devices.value();
+	for (u32 i = 0; i < deviceList.size(); i++)
+	{
+		GameThread::LogMessage(std::to_string(i) + ": " + deviceList[i].name + "\n");
+	}
+	if (targetDevice >= deviceList.size())
+	{
+		GameThread::LogMessage("Requested GPU id " + std::to_string(targetDevice) + " is not available. Defaulting to first device.\n");
+		targetDevice = 0;
+	}
+
+	vkb::PhysicalDevice physicalDevice = deviceList[targetDevice];
 	VkPhysicalDeviceFeatures features = {};
 	features.logicOp = 1;
 	physicalDevice.enable_features_if_present(features);
@@ -263,6 +283,12 @@ bool RenderThread::CreateSwapchain()
 	swapchainBuilder.set_composite_alpha_flags(VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR);
 	VkSurfaceCapabilitiesKHR surfaceCaps = {};
 	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(appData.device.physical_device, appData.surface, &surfaceCaps);
+	GameThread::LogMessage("Supported alpha composite mode(s):\n");
+	for (u32 i = 0; i < 4; i++)
+	{
+		if ((1 << i) & surfaceCaps.supportedCompositeAlpha)
+			GameThread::LogMessage(std::string("- ") + alphaBitStrings[i] + "\n");
+	}
 	auto swapRet = swapchainBuilder.set_old_swapchain(appData.swapchain).build(x, y);
 	swapRes.x = x;
 	swapRes.y = y;
@@ -730,6 +756,7 @@ bool RenderThread::CreateTextureImage()
 
 VkCommandBuffer RenderThread::BeginSingleTimeCommands()
 {
+	return VkCommandBuffer{};
 }
 
 bool RenderThread::CreateDepthResources()

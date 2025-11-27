@@ -92,7 +92,7 @@ public:
 	RenderThread() = default;
 	~RenderThread() = default;
 
-	void Init(HWND hwnd, HINSTANCE hInstance, GameThread *gm, Maths::IVec2 res);
+	void Init(HWND hwnd, HINSTANCE hInstance, GameThread *gm, Maths::IVec2 res, u32 targetDevice = 0);
 	void Resize(s32 x, s32 y);
 	bool HasFinished() const;
 	bool HasCrashed() const;
@@ -117,7 +117,7 @@ private:
 	f32 fov = 3.55f;
 	f64 appTime = 0;
 
-	void ThreadFunc();
+	void ThreadFunc(u32 targetDevice);
 	void HandleResize();
 	void InitThread();
 	void LoadAssets();
@@ -125,11 +125,11 @@ private:
 
 	VkSurfaceKHR CreateSurfaceWin32(VkInstance instance, HINSTANCE hInstance, HWND window, VkAllocationCallbacks *allocator = nullptr);
 	VkShaderModule CreateShaderModule(const std::string &code);
-	bool CreateImage(IVec2 res, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage &image, VkDeviceMemory &memory);
+	bool CreateImage(Maths::IVec2 res, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage &image, VkDeviceMemory &memory);
 	VkVertexInputBindingDescription GetBindingDescription();
 	std::array<VkVertexInputAttributeDescription, 4> GetAttributeDescriptions();
-	bool InitVulkan();
-	bool InitDevice();
+	bool InitVulkan(u32 targetDevice);
+	bool InitDevice(u32 targetDevice);
 	bool CreateSwapchain();
 	bool GetQueues();
 	bool CreateRenderPass();
@@ -146,6 +146,7 @@ private:
     bool CreateDescriptorPool();
 	bool CreateDescriptorSets();
 	bool RecreateSwapchain();
+	VkCommandBuffer BeginSingleTimeCommands();
 	bool UpdateUniformBuffer(u32 image);
 	u32 FindMemoryType(u32 typeFilter, VkMemoryPropertyFlags properties);
 	VkFormat FindDepthFormat();

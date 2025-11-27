@@ -18,9 +18,11 @@ HRGN area;
 UINT customMessage = 0;
 std::atomic_bool captured = false;
 std::atomic_bool fullscreen = false;
-bool isUnitTest = false;
 RenderThread rh;
 GameThread gh;
+
+bool isUnitTest = false;
+u32 targetDevice = 0;
 
 struct SavedInfos
 {
@@ -81,12 +83,18 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 		LPWSTR *arglist;
 		s32 argCount = 0;
 		arglist = CommandLineToArgvW(pCmdLine, &argCount);
-		const std::wstring text = L"--test";
+		const std::wstring testText = L"--test";
+		const std::wstring deviceText = L"--device=";
 		for (s32 i = 0; i < argCount; i++)
 		{
-			if (text.compare(arglist[i]) == 0)
+			if (testText.compare(arglist[i]) == 0)
 			{
 				isUnitTest = true;
+				break;
+			}
+			else if (deviceText.compare(0, deviceText.size(), arglist[i], deviceText.size()) == 0)
+			{
+				targetDevice = std::stoi(arglist[i] + deviceText.size());
 				break;
 			}
 		}
@@ -147,7 +155,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 		customMessage = RegisterWindowMessageA("VulkanWin32 Custom Message");
 
 		gh.Init(hWnd, customMessage, Maths::IVec2(800, 600), isUnitTest);
-		rh.Init(hWnd, hInstance, &gh, Maths::IVec2(800, 600));
+		rh.Init(hWnd, hInstance, &gh, Maths::IVec2(800, 600), targetDevice);
 
 		// Main message loop:
 		MSG msg;
