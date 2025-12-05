@@ -149,6 +149,7 @@ private:
 	VkCommandBuffer BeginSingleTimeCommands(VkCommandPool targetPool);
 	void EndSingleTimeCommands(VkCommandBuffer commandBuffer, VkCommandPool targetPool, VkQueue targetQueue);
 	bool TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+	void CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
 	bool UpdateUniformBuffer(u32 image);
 	u32 FindMemoryType(u32 typeFilter, VkMemoryPropertyFlags properties);
 	VkFormat FindDepthFormat();
