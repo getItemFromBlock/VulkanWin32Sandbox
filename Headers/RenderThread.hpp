@@ -39,6 +39,7 @@ struct AppData
 	vkb::Device device;
 	vkb::DispatchTable disp;
 	vkb::Swapchain swapchain;
+	f32 maxSamplerAnisotropy = 0;
 };
 
 struct RenderData
@@ -75,8 +76,14 @@ struct RenderData
 	VkDescriptorPool descriptorPool;
 	std::vector<VkDescriptorSet> descriptorSets;
 
+	VkImage depthImage;
+	VkDeviceMemory depthImageMemory;
+	VkImageView depthImageView;
+
 	VkImage textureImage;
 	VkDeviceMemory textureImageMemory;
+	VkImageView textureImageView;
+	VkSampler textureSampler;
 
 	u32 currentFrame = 0;
 };
@@ -138,6 +145,9 @@ private:
 	bool CreateFramebuffers();
 	bool CreateCommandPool();
 	bool CreateTextureImage();
+	VkImageView CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
+	bool CreateTextureImageView();
+	bool CreateTextureSampler();
 	bool CreateDepthResources();
 	bool CreateVertexBuffer(const Resource::Mesh &m);
 	bool CreateObjectBuffer(const u32 objectCount);

@@ -6,6 +6,8 @@ layout (location = 1) in vec3 fragColor;
 layout (location = 2) in vec3 fragNormal;
 layout (location = 0) out vec4 outColor;
 
+layout(binding = 2) uniform sampler2D texSampler;
+
 void main()
 {
 	//outColor = vec4(fragColor*vec3(fragUV,1.0), 1.0);
@@ -23,7 +25,9 @@ void main()
 	
 	float fact = pow(1.0 - fragUV.y, 2.0);
 	outColor = vec4(vec3(1.0, fact, fact), 1.0);
-	*/
 	float flip = fragNormal.x + fragNormal.y + fragNormal.z;
 	outColor = vec4(fragUV, 1-flip, 1.0);
+	*/
+	vec2 uv = vec2(fragUV.y, -fragUV.x);
+	outColor = vec4(texture(texSampler, uv).xyz, 1.0);
 }

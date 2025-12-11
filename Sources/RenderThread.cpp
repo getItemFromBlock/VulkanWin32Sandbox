@@ -11,9 +11,9 @@ using namespace Maths;
 const char *alphaBitStrings[] =
 {
 	"VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR",
-    "VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR",
-    "VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR",
-    "VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR"
+	"VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR",
+	"VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR",
+	"VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR"
 };
 
 std::string LoadFile(const std::string &path)
@@ -135,9 +135,12 @@ bool RenderThread::InitVulkan(u32 targetDevice)
 			CreateRenderPass() &&
 			CreateDescriptorSetLayout() &&
 			CreateGraphicsPipeline() &&
+			CreateDepthResources() &&
 			CreateFramebuffers() &&
 			CreateCommandPool() &&
 			CreateTextureImage() &&
+			CreateTextureImageView() &&
+			CreateTextureSampler() &&
 			CreateVertexBuffer(sceneData.mesh) &&
 			CreateObjectBuffer(OBJECT_COUNT) &&
 			CreateDescriptorPool() &&
@@ -270,7 +273,8 @@ bool RenderThread::InitDevice(u32 targetDevice)
 	GameThread::LogMessage("Using GPU device " + std::to_string(targetDevice) + ": " + deviceList[targetDevice].name + "\n");
 	vkb::PhysicalDevice physicalDevice = deviceList[targetDevice];
 	VkPhysicalDeviceFeatures features = {};
-	features.logicOp = 1;
+	features.logicOp = VK_TRUE;
+	features.samplerAnisotropy = VK_TRUE;
 	physicalDevice.enable_features_if_present(features);
 	vkb::DeviceBuilder deviceBuilder{ physicalDevice };
 
@@ -282,6 +286,9 @@ bool RenderThread::InitDevice(u32 targetDevice)
 	}
 	appData.device = deviceRet.value();
 	appData.disp = appData.device.make_table();
+	VkPhysicalDeviceProperties properties{};
+	vkGetPhysicalDeviceProperties(physicalDevice, &properties);
+	appData.maxSamplerAnisotropy = properties.limits.maxSamplerAnisotropy;
 
 	return true;
 }
@@ -365,27 +372,43 @@ bool RenderThread::CreateRenderPass()
 	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
+	VkAttachmentDescription depthAttachment = {};
+	depthAttachment.format = FindDepthFormat();
+	depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
 	VkAttachmentReference colorAttachmentRef = {};
 	colorAttachmentRef.attachment = 0;
 	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	VkAttachmentReference depthAttachmentRef = {};
+	depthAttachmentRef.attachment = 1;
+	depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 	VkSubpassDescription subpass = {};
 	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &colorAttachmentRef;
+	subpass.pDepthStencilAttachment = &depthAttachmentRef;
 
 	VkSubpassDependency dependency = {};
 	dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
 	dependency.dstSubpass = 0;
-	dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependency.srcAccessMask = 0;
-	dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+	dependency.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
+	VkAttachmentDescription descriptions[2] = {colorAttachment, depthAttachment};
 	VkRenderPassCreateInfo renderPassInfo = {};
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPassInfo.attachmentCount = 1;
-	renderPassInfo.pAttachments = &colorAttachment;
+	renderPassInfo.attachmentCount = 2;
+	renderPassInfo.pAttachments = descriptions;
 	renderPassInfo.subpassCount = 1;
 	renderPassInfo.pSubpasses = &subpass;
 	renderPassInfo.dependencyCount = 1;
@@ -496,23 +519,30 @@ std::array<VkVertexInputAttributeDescription, 4> RenderThread::GetAttributeDescr
 bool RenderThread::CreateDescriptorSetLayout()
 {
 	VkDescriptorSetLayoutBinding uboLayoutBinding = {};
-    uboLayoutBinding.binding = 0;
-    uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    uboLayoutBinding.descriptorCount = 1;
+	uboLayoutBinding.binding = 0;
+	uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	uboLayoutBinding.descriptorCount = 1;
 	uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 	uboLayoutBinding.pImmutableSamplers = nullptr;
 
 	VkDescriptorSetLayoutBinding objectLayoutBinding = {};
-    objectLayoutBinding.binding = 1;
-    objectLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    objectLayoutBinding.descriptorCount = 1;
+	objectLayoutBinding.binding = 1;
+	objectLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	objectLayoutBinding.descriptorCount = 1;
 	objectLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 	objectLayoutBinding.pImmutableSamplers = nullptr;
 
+	VkDescriptorSetLayoutBinding samplerLayoutBinding = {};
+	samplerLayoutBinding.binding = 2;
+	samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	samplerLayoutBinding.descriptorCount = 1;
+	samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	samplerLayoutBinding.pImmutableSamplers = nullptr;
+
 	VkDescriptorSetLayoutCreateInfo layoutInfo = {};
 	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	layoutInfo.bindingCount = 2;
-	VkDescriptorSetLayoutBinding bindings[2] = { uboLayoutBinding, objectLayoutBinding };
+	layoutInfo.bindingCount = 3;
+	VkDescriptorSetLayoutBinding bindings[3] = { uboLayoutBinding, objectLayoutBinding, samplerLayoutBinding };
 	layoutInfo.pBindings = bindings;
 	
 	if (appData.disp.createDescriptorSetLayout(&layoutInfo, nullptr, &renderData.descriptorSetLayout) != VK_SUCCESS)
@@ -623,6 +653,18 @@ bool RenderThread::CreateGraphicsPipeline()
 	colorBlending.blendConstants[2] = 0.0f;
 	colorBlending.blendConstants[3] = 0.0f;
 
+	VkPipelineDepthStencilStateCreateInfo depthStencil = {};
+	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+	depthStencil.depthTestEnable = VK_TRUE;
+	depthStencil.depthWriteEnable = VK_TRUE;
+	depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+	depthStencil.depthBoundsTestEnable = VK_FALSE;
+	depthStencil.minDepthBounds = 0.0f; // Optional
+	depthStencil.maxDepthBounds = 1.0f; // Optional
+	depthStencil.stencilTestEnable = VK_FALSE;
+	depthStencil.front = {}; // Optional
+	depthStencil.back = {}; // Optional
+
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
 	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 	pipelineLayoutInfo.setLayoutCount = 1;
@@ -652,6 +694,7 @@ bool RenderThread::CreateGraphicsPipeline()
 	pipelineInfo.pRasterizationState = &rasterizer;
 	pipelineInfo.pMultisampleState = &multisampling;
 	pipelineInfo.pColorBlendState = &colorBlending;
+	pipelineInfo.pDepthStencilState = &depthStencil;
 	pipelineInfo.pDynamicState = &dynamicInfo;
 	pipelineInfo.layout = renderData.pipelineLayout;
 	pipelineInfo.renderPass = renderData.renderPass;
@@ -703,12 +746,12 @@ bool RenderThread::CreateFramebuffers()
 
 	for (u32 i = 0; i < renderData.swapchainImageViews.size(); i++)
 	{
-		VkImageView attachments[] = { renderData.swapchainImageViews[i] };
+		VkImageView attachments[2] = { renderData.swapchainImageViews[i], renderData.depthImageView };
 
 		VkFramebufferCreateInfo framebufferInfo = {};
 		framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 		framebufferInfo.renderPass = renderData.renderPass;
-		framebufferInfo.attachmentCount = 1;
+		framebufferInfo.attachmentCount = 2;
 		framebufferInfo.pAttachments = attachments;
 		framebufferInfo.width = appData.swapchain.extent.width;
 		framebufferInfo.height = appData.swapchain.extent.height;
@@ -748,7 +791,7 @@ bool RenderThread::CreateCommandPool()
 bool RenderThread::CreateTextureImage()
 {
 	IVec2 res;
-	u8 *pixels = Resource::Texture::ReadTexture("Assets/Textures/FISH.png", res);
+	u8 *pixels = Resource::Texture::ReadTexture("Assets/Textures/blocks.png", res);
 	if (!pixels)
 	{
 		GameThread::SendErrorPopup("failed to load texture");
@@ -780,23 +823,78 @@ bool RenderThread::CreateTextureImage()
 	return true;
 }
 
+bool RenderThread::CreateTextureImageView()
+{
+	renderData.textureImageView = CreateImageView(renderData.textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
+	return renderData.textureImageView != nullptr;
+}
+
+bool RenderThread::CreateTextureSampler()
+{
+	VkSamplerCreateInfo samplerInfo = {};
+	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+	samplerInfo.magFilter = VK_FILTER_NEAREST;
+	samplerInfo.minFilter = VK_FILTER_NEAREST;
+	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerInfo.anisotropyEnable = VK_TRUE;
+	samplerInfo.maxAnisotropy = appData.maxSamplerAnisotropy;
+	samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+	samplerInfo.unnormalizedCoordinates = VK_FALSE;
+	samplerInfo.compareEnable = VK_FALSE;
+	samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+	samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	samplerInfo.mipLodBias = 0.0f;
+	samplerInfo.minLod = 0.0f;
+	samplerInfo.maxLod = 0.0f;
+
+	if (appData.disp.createSampler(&samplerInfo, nullptr, &renderData.textureSampler) != VK_SUCCESS)
+	{
+		GameThread::SendErrorPopup("failed to create texture sampler!");
+		return false;
+	}
+
+	return true;
+}
+
+VkImageView RenderThread::CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags)
+{
+	VkImageViewCreateInfo viewInfo = {};
+	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	viewInfo.image = image;
+	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	viewInfo.format = format;
+	viewInfo.subresourceRange.aspectMask = aspectFlags;
+	viewInfo.subresourceRange.baseMipLevel = 0;
+	viewInfo.subresourceRange.levelCount = 1;
+	viewInfo.subresourceRange.baseArrayLayer = 0;
+	viewInfo.subresourceRange.layerCount = 1;
+
+	VkImageView imageView = nullptr;
+	if (vkCreateImageView(appData.device, &viewInfo, nullptr, &imageView) != VK_SUCCESS)
+		GameThread::SendErrorPopup("failed to create image view!");
+
+	return imageView;
+}
+
 VkCommandBuffer RenderThread::BeginSingleTimeCommands(VkCommandPool targetPool)
 {
 	VkCommandBufferAllocateInfo allocInfo = {};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool = targetPool;
-    allocInfo.commandBufferCount = 1;
+	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandPool = targetPool;
+	allocInfo.commandBufferCount = 1;
 
-    VkCommandBuffer commandBuffer;
+	VkCommandBuffer commandBuffer;
 	appData.disp.allocateCommandBuffers(&allocInfo, &commandBuffer);
-    
+	
 	VkCommandBufferBeginInfo beginInfo = {};
 	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	appData.disp.beginCommandBuffer(commandBuffer, &beginInfo);
 
-    return commandBuffer;
+	return commandBuffer;
 }
 
 void RenderThread::EndSingleTimeCommands(VkCommandBuffer commandBuffer, VkCommandPool targetPool, VkQueue targetQueue)
@@ -816,8 +914,8 @@ void RenderThread::EndSingleTimeCommands(VkCommandBuffer commandBuffer, VkComman
 bool RenderThread::CreateDepthResources()
 {
 	VkFormat depthFormat = FindDepthFormat();
-	//CreateImage(res.x, res.y, depthFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, renderData.depthImage, renderData.depthImageMemory);
-	//renderData.depthImageView = CreateImageView(depthImage, depthFormat);
+	CreateImage(swapRes, depthFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, renderData.depthImage, renderData.depthImageMemory);
+	renderData.depthImageView = CreateImageView(renderData.depthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
 
 	return true;
 }
@@ -828,9 +926,9 @@ bool RenderThread::CreateVertexBuffer(const Resource::Mesh &m)
 
 	VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
 
-    VkBuffer stagingBuffer;
-    VkDeviceMemory stagingBufferMemory;
-    CreateBuffer(	bufferSize,
+	VkBuffer stagingBuffer;
+	VkDeviceMemory stagingBufferMemory;
+	CreateBuffer(	bufferSize,
 					VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 					VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 					stagingBuffer,
@@ -841,7 +939,7 @@ bool RenderThread::CreateVertexBuffer(const Resource::Mesh &m)
 	std::memcpy(data, vertices.data(), bufferSize);
 	appData.disp.unmapMemory(stagingBufferMemory);
 
-    CreateBuffer(	bufferSize,
+	CreateBuffer(	bufferSize,
 					VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
 					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 					renderData.vertexBuffer,
@@ -850,14 +948,14 @@ bool RenderThread::CreateVertexBuffer(const Resource::Mesh &m)
 	CopyBuffer(stagingBuffer, renderData.vertexBuffer, bufferSize);
 
 	appData.disp.destroyBuffer(stagingBuffer, nullptr);
-    appData.disp.freeMemory(stagingBufferMemory, nullptr);
+	appData.disp.freeMemory(stagingBufferMemory, nullptr);
 	
 	return true;
 }
 
 bool RenderThread::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
 {
-    VkCommandBuffer commandBuffer = BeginSingleTimeCommands(renderData.transfertCommandPool);
+	VkCommandBuffer commandBuffer = BeginSingleTimeCommands(renderData.transfertCommandPool);
 	
 	VkBufferCopy copyRegion = {};
 	copyRegion.srcOffset = 0; // Optional
@@ -872,7 +970,7 @@ bool RenderThread::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSi
 
 bool RenderThread::TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
 {
-    VkCommandBuffer commandBuffer = BeginSingleTimeCommands(renderData.commandPool);
+	VkCommandBuffer commandBuffer = BeginSingleTimeCommands(renderData.commandPool);
 
 	VkImageMemoryBarrier barrier = {};
 	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -911,22 +1009,22 @@ bool RenderThread::TransitionImageLayout(VkImage image, VkFormat format, VkImage
 	}
 
 	appData.disp.cmdPipelineBarrier(
-	    commandBuffer,
-	    0 /* TODO */, 0 /* TODO */,
-	    0,
-	    0, nullptr,
-	    0, nullptr,
-	    1, &barrier
+		commandBuffer,
+		sourceStage, destinationStage,
+		0,
+		0, nullptr,
+		0, nullptr,
+		1, &barrier
 	);
 
-    EndSingleTimeCommands(commandBuffer, renderData.commandPool, renderData.graphicsQueue);
+	EndSingleTimeCommands(commandBuffer, renderData.commandPool, renderData.graphicsQueue);
 
 	return true;
 }
 
 void RenderThread::CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height)
 {
-    VkCommandBuffer commandBuffer = BeginSingleTimeCommands(renderData.transfertCommandPool);
+	VkCommandBuffer commandBuffer = BeginSingleTimeCommands(renderData.transfertCommandPool);
 
 	VkBufferImageCopy region = {};
 	region.bufferOffset = 0;
@@ -954,7 +1052,7 @@ void RenderThread::CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t wi
 		&region
 	);
 
-    EndSingleTimeCommands(commandBuffer, renderData.transfertCommandPool, renderData.transferQueue);
+	EndSingleTimeCommands(commandBuffer, renderData.transfertCommandPool, renderData.transferQueue);
 }
 
 bool RenderThread::CreateCommandBuffers()
@@ -1002,9 +1100,11 @@ bool RenderThread::CreateCommandBuffers()
 		renderPassInfo.framebuffer = renderData.framebuffers[i];
 		renderPassInfo.renderArea.offset = { 0, 0 };
 		renderPassInfo.renderArea.extent = appData.swapchain.extent;
-		VkClearValue clearColor{ { { 0.0f, 0.0f, 0.0f, 0.0f } } };
-		renderPassInfo.clearValueCount = 1;
-		renderPassInfo.pClearValues = &clearColor;
+		VkClearValue clearColors[2];
+		clearColors[0].color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+		clearColors[1].depthStencil = { 1.0f, 0 };
+		renderPassInfo.clearValueCount = 2;
+		renderPassInfo.pClearValues = clearColors;
 
 		VkViewport viewport = {};
 		viewport.x = 0.0f;
@@ -1046,30 +1146,30 @@ bool RenderThread::CreateCommandBuffers()
 
 bool RenderThread::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory)
 {
-    VkBufferCreateInfo bufferInfo = {};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = size;
-    bufferInfo.usage = usage;
-    bufferInfo.sharingMode = VK_SHARING_MODE_CONCURRENT;
+	VkBufferCreateInfo bufferInfo = {};
+	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufferInfo.size = size;
+	bufferInfo.usage = usage;
+	bufferInfo.sharingMode = VK_SHARING_MODE_CONCURRENT;
 	bufferInfo.queueFamilyIndexCount = 2;
 	auto transfer = appData.device.get_queue_index(vkb::QueueType::transfer);
 	auto graph = appData.device.get_queue_index(vkb::QueueType::graphics);
 	u32 queueFamilies[2] = {appData.device.get_queue_index(vkb::QueueType::graphics).value(), transfer.has_value() ? transfer.value() : graph.has_value()};
 	bufferInfo.pQueueFamilyIndices = queueFamilies;
 
-    if (appData.disp.createBuffer(&bufferInfo, nullptr, &buffer) != VK_SUCCESS)
+	if (appData.disp.createBuffer(&bufferInfo, nullptr, &buffer) != VK_SUCCESS)
 	{
-        GameThread::SendErrorPopup("failed to create buffer!");
+		GameThread::SendErrorPopup("failed to create buffer!");
 		return false;
-    }
+	}
 
-    VkMemoryRequirements memRequirements;
+	VkMemoryRequirements memRequirements;
 	appData.disp.getBufferMemoryRequirements(buffer, &memRequirements);
 
-    VkMemoryAllocateInfo allocInfo = {};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = FindMemoryType(memRequirements.memoryTypeBits, properties);
+	VkMemoryAllocateInfo allocInfo = {};
+	allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocInfo.allocationSize = memRequirements.size;
+	allocInfo.memoryTypeIndex = FindMemoryType(memRequirements.memoryTypeBits, properties);
 
 	if (appData.disp.allocateMemory(&allocInfo, nullptr, &bufferMemory) != VK_SUCCESS)
 	{
@@ -1124,18 +1224,21 @@ bool RenderThread::CreateDescriptorPool()
 	VkDescriptorPoolSize poolSize1 = {};
 	poolSize1.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	poolSize1.descriptorCount = 256;
+	VkDescriptorPoolSize poolSize2 = {};
+	poolSize2.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	poolSize2.descriptorCount = 256;
 
-	VkDescriptorPoolSize pools[2] = {poolSize0, poolSize1};
+	VkDescriptorPoolSize pools[3] = {poolSize0, poolSize1, poolSize2};
 	VkDescriptorPoolCreateInfo poolInfo = {};
 	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	poolInfo.poolSizeCount = 2;
+	poolInfo.poolSizeCount = 3;
 	poolInfo.pPoolSizes = pools;
 	poolInfo.maxSets = 256;
 
 	
 	if (appData.disp.createDescriptorPool(&poolInfo, nullptr, &renderData.descriptorPool) != VK_SUCCESS)
 	{
-	    GameThread::SendErrorPopup("failed to create descriptor pool");
+		GameThread::SendErrorPopup("failed to create descriptor pool");
 		return false;
 	}
 
@@ -1170,6 +1273,11 @@ bool RenderThread::CreateDescriptorSets()
 		bufferInfo1.offset = sizeof(Mat4);
 		bufferInfo1.range = sizeof(Vec4) * OBJECT_COUNT * 2;
 
+		VkDescriptorImageInfo imageInfo0 = {};
+		imageInfo0.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		imageInfo0.imageView = renderData.textureImageView;
+		imageInfo0.sampler = renderData.textureSampler;
+
 		VkWriteDescriptorSet descriptorWrite0 = {};
 		descriptorWrite0.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		descriptorWrite0.dstSet = renderData.descriptorSets[i];
@@ -1192,9 +1300,17 @@ bool RenderThread::CreateDescriptorSets()
 		descriptorWrite1.pImageInfo = nullptr; // Optional
 		descriptorWrite1.pTexelBufferView = nullptr; // Optional
 
+		VkWriteDescriptorSet descriptorWrite2 = {};
+		descriptorWrite2.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrite2.dstSet = renderData.descriptorSets[i];
+		descriptorWrite2.dstBinding = 2;
+		descriptorWrite2.dstArrayElement = 0;
+		descriptorWrite2.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		descriptorWrite2.descriptorCount = 1;
+		descriptorWrite2.pImageInfo = &imageInfo0;
 
-		VkWriteDescriptorSet descriptorArray[2] = {descriptorWrite0, descriptorWrite1};
-		appData.disp.updateDescriptorSets(2, descriptorArray, 0, nullptr);
+		VkWriteDescriptorSet descriptorArray[3] = {descriptorWrite0, descriptorWrite1, descriptorWrite2};
+		appData.disp.updateDescriptorSets(3, descriptorArray, 0, nullptr);
 	}
 
 	return true;
@@ -1210,6 +1326,10 @@ bool RenderThread::RecreateSwapchain()
 	appData.disp.deviceWaitIdle();
 	if (renderData.commandPool != VK_NULL_HANDLE)
 	{
+		appData.disp.destroyImageView(renderData.depthImageView, nullptr);
+		appData.disp.destroyImage(renderData.depthImage, nullptr);
+		appData.disp.freeMemory(renderData.depthImageMemory, nullptr);
+
 		appData.disp.destroyCommandPool(renderData.commandPool, nullptr);
 		appData.disp.destroyCommandPool(renderData.transfertCommandPool, nullptr);
 		renderData.commandPool = VK_NULL_HANDLE;
@@ -1226,9 +1346,11 @@ bool RenderThread::RecreateSwapchain()
 			return true;
 		return false;
 	}
-	if (!CreateFramebuffers()) return false;
-	if (!CreateCommandPool()) return false;
-	if (!CreateCommandBuffers()) return false;
+	if (!CreateDepthResources() ||
+		!CreateFramebuffers() ||
+		!CreateCommandPool() ||
+		!CreateCommandBuffers())
+		return false;
 	resized = false;
 	return true;
 }
@@ -1273,9 +1395,9 @@ VkFormat RenderThread::FindSupportedFormat(const std::vector<VkFormat>& candidat
 		VkFormatProperties props;
 		vkGetPhysicalDeviceFormatProperties(appData.device.physical_device, format, &props);
 		if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features)
-		    return format;
+			return format;
 		else if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features)
-		    return format;
+			return format;
 	}
 
 	GameThread::SendErrorPopup("failed to find supported format!");
@@ -1284,16 +1406,16 @@ VkFormat RenderThread::FindSupportedFormat(const std::vector<VkFormat>& candidat
 
 VkFormat RenderThread::FindDepthFormat()
 {
-    return FindSupportedFormat(
-        {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
-        VK_IMAGE_TILING_OPTIMAL,
-        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
-    );
+	return FindSupportedFormat(
+		{VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+		VK_IMAGE_TILING_OPTIMAL,
+		VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
+	);
 }
 
 bool RenderThread::HasStencilComponent(VkFormat format)
 {
-    return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
+	return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
 }
 
 bool RenderThread::DrawFrame()
@@ -1418,6 +1540,8 @@ void RenderThread::Cleanup()
 	appData.disp.destroyDescriptorPool(renderData.descriptorPool, nullptr);
 	appData.disp.destroyDescriptorSetLayout(renderData.descriptorSetLayout, nullptr);
 	appData.disp.freeMemory(renderData.vertexBufferMemory, nullptr);
+	appData.disp.destroySampler(renderData.textureSampler, nullptr);
+	appData.disp.destroyImageView(renderData.textureImageView, nullptr);
 	appData.disp.destroyImage(renderData.textureImage, nullptr);
 	appData.disp.freeMemory(renderData.textureImageMemory, nullptr);
 
