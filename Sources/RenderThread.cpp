@@ -531,7 +531,6 @@ bool RenderThread::CreateDescriptorSetLayout()
 	objectLayoutBinding.descriptorCount = 1;
 	objectLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 	objectLayoutBinding.pImmutableSamplers = nullptr;
-	ZGHZLFKHD
 
 	VkDescriptorSetLayoutBinding samplerLayoutBinding = {};
 	samplerLayoutBinding.binding = 2;
@@ -539,6 +538,31 @@ bool RenderThread::CreateDescriptorSetLayout()
 	samplerLayoutBinding.descriptorCount = 1;
 	samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 	samplerLayoutBinding.pImmutableSamplers = nullptr;
+
+	VkDescriptorSetLayoutBinding computeLayoutBinding = {};
+	computeLayoutBinding.binding = 0;
+	computeLayoutBinding.descriptorCount = 1;
+	computeLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	computeLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT;
+	computeLayoutBinding.pImmutableSamplers = nullptr;
+
+	/*
+	* 
+	* n cells
+
+buffer size: align(n*n*m0) + align(n*m1) + align()
+
+sort 0
+	n kernels, each kernel has its list of cells
+sort merge
+	n kernels, merge per cell
+
+sim 0 (new vel)
+sim 1 (apply vel)
+render
+
+	* 
+	* */
 
 	VkDescriptorSetLayoutCreateInfo layoutInfo = {};
 	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
