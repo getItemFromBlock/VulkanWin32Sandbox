@@ -11,7 +11,18 @@
 
 #include "Maths/Maths.hpp"
 
-const u32 OBJECT_COUNT = 5000;
+const u32 OBJECT_COUNT = 65536;
+const u32 WORLD_SIZE = 500;
+const u32 MAX_GROUP_COUNT = 1024;
+const u32 CHUNK_COUNT_SIDE = 32;
+const u32 CHUNK_COUNT = CHUNK_COUNT_SIDE * CHUNK_COUNT_SIDE * CHUNK_COUNT_SIDE;
+const u32 MAX_OBJECTS_PER_CHUNK = OBJECT_COUNT * 4 / CHUNK_COUNT + 1;
+const u32 SORT_THREAD_COUNT = 64;
+const u32 SORT_OBJECT_COUNT = (OBJECT_COUNT + SORT_THREAD_COUNT - 1) / SORT_THREAD_COUNT;
+const u32 SORT_THREAD_OBJECT_PER_CHUNK = MAX_OBJECTS_PER_CHUNK / 4 + 1;
+const u32 BLOCK_SIZE_Z = (CHUNK_COUNT + MAX_GROUP_COUNT - 1) / MAX_GROUP_COUNT;
+const u32 CHUNK_COUNT_SIDE_Z = CHUNK_COUNT_SIDE / BLOCK_SIZE_Z;
+
 const u32 CELL_SIZE = 64;
 const u32 BOID_CHUNK = 512;
 const float BOID_DIST_MAX = 64.0f;
@@ -48,7 +59,7 @@ public:
 	void MoveMouse(Maths::Vec2 delta);
 	void SetKeyState(u8 key, u8 scanCode, bool state);
 	void SendWindowMessage(WindowMessage msg, u64 payload = 0);
-	const std::vector<Maths::Vec4> &GetSimulationData() const;
+	std::vector<Maths::Vec4> GetInitialSimulationData();
 	const Maths::Mat4 &GetViewProjectionMatrix() const;
 
 	static void SendErrorPopup(const std::wstring &err);
@@ -80,7 +91,7 @@ private:
 	Maths::Vec2 rotation = Maths::Vec2(0, (float)(M_PI*5/4));
 	Maths::Quat rotationQuat;
 	u32 customMessage = 0;
-	f32 fov = 3.55f;
+	f32 fov = 70.0f;
 	f64 appTime = 0;
 	Maths::Vec2 cursorPos;
 	std::atomic_bool mousePressed = false;
@@ -110,8 +121,9 @@ private:
 	void PreUpdate();
 	void Update(float deltaTime);
 	void PostUpdate(float deltaTime);
-	void UpdateBuffers();
+	void UpdateBuffers(const Maths::Mat4 &mat);
 	float NextFloat01();
+	Maths::Vec3 NextUnitVector();
 	s32 GetCell(Maths::IVec2 pos, Maths::IVec2 &dt);
 	void ThreadPoolFunc();
 	bool ThreadPoolUpdate();

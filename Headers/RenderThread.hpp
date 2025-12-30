@@ -20,7 +20,7 @@
 
 #include "GameThread.hpp"
 
-const u32 MAX_FRAMES_IN_FLIGHT = 2;
+const u32 MAX_FRAMES_IN_FLIGHT = 3;
 
 struct UBO
 {
@@ -39,6 +39,7 @@ struct AppData
 	vkb::Device device;
 	vkb::DispatchTable disp;
 	vkb::Swapchain swapchain;
+	f32 maxSamplerAnisotropy = 0;
 };
 
 struct RenderData
@@ -54,10 +55,13 @@ struct RenderData
 	VkRenderPass renderPass;
 	VkPipelineLayout pipelineLayout;
 	VkPipeline graphicsPipeline;
+	VkPipelineLayout computePipelineLayout;
+	VkPipeline computePipelines[4];
 
 	VkCommandPool commandPool;
 	VkCommandPool transfertCommandPool;
 	std::vector<VkCommandBuffer> commandBuffers;
+	std::vector<VkCommandBuffer> computeCommandBuffers;
 	VkCommandBuffer transferCommandBuffer;
 
 	std::vector<VkSemaphore> availableSemaphores;
@@ -69,15 +73,31 @@ struct RenderData
 	std::vector<VkDeviceMemory> objectBuffersMemory;
 	std::vector<Maths::Vec4*> objectBuffersMapped;
 
+	VkBuffer computeBuffer;
+	VkDeviceMemory computeBufferMemory;
+
 	VkBuffer vertexBuffer;
 	VkDeviceMemory vertexBufferMemory;
-	VkDescriptorSetLayout descriptorSetLayout;
+	VkDescriptorSetLayout descriptorSetLayoutCompute;
+	VkDescriptorSetLayout descriptorSetLayoutRender;
 	VkDescriptorPool descriptorPool;
+	VkDescriptorPool descriptorPoolCompute;
 	std::vector<VkDescriptorSet> descriptorSets;
+	std::vector<VkDescriptorSet> computeDescriptorSets;
+
+	VkImage depthImage;
+	VkDeviceMemory depthImageMemory;
+	VkImageView depthImageView;
 
 	VkImage textureImage;
 	VkDeviceMemory textureImageMemory;
+	VkImageView textureImageView;
+	VkSampler textureSampler;
 
+	u32 mainBufSize = 0;
+	u32 sizeObjects = 0;
+	u32 sizeSortBuf = 0;
+	u32 sizeMergeBuf = 0;
 	u32 currentFrame = 0;
 };
 
@@ -133,23 +153,31 @@ private:
 	bool CreateSwapchain();
 	bool GetQueues();
 	bool CreateRenderPass();
-	bool CreateDescriptorSetLayout();
+	bool CreateDescriptorSetLayouts();
 	bool CreateGraphicsPipeline();
+	bool CreateComputePipeline();
 	bool CreateFramebuffers();
 	bool CreateCommandPool();
 	bool CreateTextureImage();
+	VkImageView CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
+	bool CreateTextureImageView();
+	bool CreateTextureSampler();
 	bool CreateDepthResources();
 	bool CreateVertexBuffer(const Resource::Mesh &m);
-	bool CreateObjectBuffer(const u32 objectCount);
+	bool CreateObjectBuffers(u32 objectCount);
 	bool CreateCommandBuffers();
 	bool CreateSyncObjects();
     bool CreateDescriptorPool();
 	bool CreateDescriptorSets();
 	bool RecreateSwapchain();
-	VkCommandBuffer BeginSingleTimeCommands();
+	VkCommandBuffer BeginSingleTimeCommands(VkCommandPool targetPool);
+	void EndSingleTimeCommands(VkCommandBuffer commandBuffer, VkCommandPool targetPool, VkQueue targetQueue);
+	bool TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+	void CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
 	bool UpdateUniformBuffer(u32 image);
 	u32 FindMemoryType(u32 typeFilter, VkMemoryPropertyFlags properties);
 	VkFormat FindDepthFormat();
+	VkWriteDescriptorSet CreateWriteDescriptorSet(VkDescriptorSet dstSet, u32 binding, VkDescriptorType type, VkDescriptorBufferInfo *bufferInfo = nullptr, VkDescriptorImageInfo *imageInfo = nullptr);
 	bool HasStencilComponent(VkFormat format);
 	VkFormat FindSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
 	bool CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory);

@@ -303,7 +303,7 @@ namespace Maths
 		return result.InverseDepth();
 	}
 
-	Mat4 Mat4::TransposeMatrix()
+	Mat4 Mat4::TransposeMatrix() const
 	{
 		f32 x[16] = { 0 };
 		for (s32 j = 0; j < 4; j++)

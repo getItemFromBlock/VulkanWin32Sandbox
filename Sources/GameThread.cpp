@@ -31,6 +31,11 @@ float GameThread::NextFloat01()
 	return rand() / static_cast<float>(RAND_MAX);
 }
 
+Maths::Vec3 GameThread::NextUnitVector()
+{
+	return (Vec3(NextFloat01(), NextFloat01(), NextFloat01()) * 2 - 1).Normalize();
+}
+
 void GameThread::Init(HWND hwnd, u32 customMsg, Maths::IVec2 resIn, bool isUnit)
 {
 	isUnitTest = isUnit;
@@ -111,18 +116,16 @@ void GameThread::LogMessage(const std::string &msg)
 {
 #ifdef UNIT_TEST
 	std::cout << msg;
-#else
-	OutputDebugStringA(msg.c_str());
 #endif
+	OutputDebugStringA(msg.c_str());
 }
 
 void GameThread::LogMessage(const std::wstring &msg)
 {
 #ifdef UNIT_TEST
 	std::wcout << msg;
-#else
-	OutputDebugStringW(msg.c_str());
 #endif
+	OutputDebugStringW(msg.c_str());
 }
 
 bool GameThread::HasCrashed()
@@ -150,6 +153,7 @@ void GameThread::InitThread()
 	SetThreadDescription(GetCurrentThread(), L"Game Thread");
 	std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
 	start = now.time_since_epoch();
+	/*
 	srand((u32)(std::chrono::duration_cast<std::chrono::milliseconds>(start).count()));
 
 	positions.resize(OBJECT_COUNT);
@@ -173,6 +177,7 @@ void GameThread::InitThread()
 	{
 		threadPool[i] = std::thread(&GameThread::ThreadPoolFunc, this);
 	}
+	*/
 }
 
 s32 GameThread::GetCell(Maths::IVec2 pos, Maths::IVec2 &dt)
@@ -263,8 +268,9 @@ void GameThread::PostUpdate(float deltaTime)
 		ThreadPoolUpdate();
 }
 
-void GameThread::UpdateBuffers()
+void GameThread::UpdateBuffers(const Mat4 &mat)
 {
+	/*
 	auto &buf = currentBuf ? bufferA : bufferB;
 	for (u32 i = 0; i < OBJECT_COUNT; i++)
 	{
@@ -275,18 +281,26 @@ void GameThread::UpdateBuffers()
 		buf[i*2] = Vec4(positions[i].x/10, 0, positions[i].y/10, 0);
 		buf[i*2+1] = Vec4(rot.v, rot.a);
 	}
-	
-	auto &mat = currentBuf ? vpA : vpB;
-	mat = Mat4::CreatePerspectiveProjectionMatrix(0.1f, 1000.0f, 70.0f, (float)(res.x) / res.y);
-	mat = mat * Mat4::CreateViewMatrix(position, position + rotationQuat * Vec3(0,0,-1), rotationQuat * Vec3(0,1,0));
-	mat = mat.TransposeMatrix();
+	*/
+	auto &matRef = currentBuf ? vpA : vpB;
+	matRef = mat.TransposeMatrix();
 
 	currentBuf = !currentBuf;
 }
 
-const std::vector<Maths::Vec4> &GameThread::GetSimulationData() const
+std::vector<Maths::Vec4> GameThread::GetInitialSimulationData()
 {
-	return currentBuf ? bufferB : bufferA;
+	std::vector<Vec4> initialData = std::vector<Vec4>(OBJECT_COUNT * 4);
+	srand((u32)(std::chrono::duration_cast<std::chrono::milliseconds>(start).count()));
+
+	for (u32 i = 0; i < OBJECT_COUNT; i++)
+	{
+		initialData[i*4] = Vec4(NextFloat01() * WORLD_SIZE, NextFloat01() * WORLD_SIZE, NextFloat01() * WORLD_SIZE, 0);
+		initialData[i*4+1] = Vec4(NextUnitVector(), 0) * BOID_MAX_SPEED * 0.2f * (1/144.0f);
+		initialData[i*4+2] = Vec4();
+		initialData[i*4+3] = Quat::AxisAngle(NextUnitVector(), (float)(NextFloat01() * M_PI * 2)).ToVec4();
+	}
+	return initialData;
 }
 
 const Maths::Mat4 & GameThread::GetViewProjectionMatrix() const
@@ -434,14 +448,14 @@ void GameThread::ThreadFunc()
 			f32 key = keyCodesDown.test(MOVEMENT_KEYS[i]);
 			dir[i % 3] += (i > 2) ? -key : key;
 		}
-		f32 fovDir = static_cast<f32>(keyDown.test(VK_UP)) - static_cast<f32>(keyDown.test(VK_DOWN));
+		f32 fovDir = static_cast<f32>(keyDown.test(VK_DOWN)) - static_cast<f32>(keyDown.test(VK_UP));
 		bool fullscreen = keyPress.test(VK_F11);
 		bool capture = keyPress.test(VK_ESCAPE);
 		bool shift = keyDown.test(VK_SHIFT);
 		keyPress.reset();
 		keyCodesPress.reset();
 		keyLock.unlock();
-		fov = Util::Clamp(fov + fovDir * deltaTime * fov, 0.5f, 100.0f);
+		fov = Util::Clamp(fov + fovDir * deltaTime * fov, 0.5f, 175.0f);
 		rotationQuat = Quat::FromEuler(Vec3(rotation.x, rotation.y, 0.0f));
 		if (dir.Dot())
 		{
@@ -454,38 +468,64 @@ void GameThread::ThreadFunc()
 		if (capture)
 			SendWindowMessage(LOCK_MOUSE);
 
+		Mat4 vp = Mat4::CreatePerspectiveProjectionMatrix(0.1f, 1000.0f, fov, (float)(res.x) / res.y);
+		vp = vp * Mat4::CreateViewMatrix(position, position + rotationQuat * Vec3(0,0,-1), rotationQuat * Vec3(0,1,0));
+
+		bool click = GetKeyState(VK_LBUTTON) < 0;
 		POINT p;
 		GetCursorPos(&p);
 		ScreenToClient(hWnd, &p);
-		bool click = GetKeyState(VK_LBUTTON) < 0;
-		cursorPos.x = (float)(p.x);
-		cursorPos.y = (float)(p.y);
+		Vec2 localPos = Vec2((float)(p.x), (float)(p.y));
+		float ratio = tanf(Util::ToRadians(fov / 2.0f));
+		Vec3 mouseDir = Vec3((localPos.x * 2 / res.x) - 1, (localPos.y * 2 / res.y) - 1, -1);
+		mouseDir = Vec3(mouseDir.x * ratio * res.x / res.y, -mouseDir.y * ratio, -1);
+		Vec3 rayDir = rotationQuat * mouseDir.Normalize();
+		float dt = Vec3(0,1,0).Dot(rayDir);
+		if (abs(dt) < 0.0001f)
+		{
+			click = false;
+		}
+		else
+		{
+		    float t = -position.Dot(Vec3(0,1,0)) / dt;
+			if (t <= 0.0001f)
+			{
+				click = false;
+			}
+			else
+			{
+				rayDir = position + rayDir * t;
+			}
+		}
+		cursorPos = Vec2(rayDir.x, rayDir.z) * 10;
 		mousePressed = click;
 		
 		// Hard cap movement to 30 fps so that deltatime does not gets too big
 		if (deltaTime > 0.033f)
 			deltaTime = 0.033f;
-
+		/*
 		if (appTime > 1)
 		{
 			PreUpdate();
 			Update(deltaTime);
 			PostUpdate(deltaTime);
 		}
-		else
+		*/
+		//else
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		
-		UpdateBuffers();
+		UpdateBuffers(vp);
 
 		if (isUnitTest && appTime > 10.0f)
 			SendWindowMessage(EXIT_WINDOW);
 	}
-
+	/*
 	poolExit = true;
 	for (u32 i = 0; i < threadPool.size(); i++)
 	{
 		threadPool[i].join();
 	}
+	*/
 }
 
 bool GameThread::ThreadPoolUpdate()

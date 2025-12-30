@@ -11,9 +11,9 @@ using namespace Maths;
 const char *alphaBitStrings[] =
 {
 	"VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR",
-    "VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR",
-    "VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR",
-    "VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR"
+	"VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR",
+	"VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR",
+	"VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR"
 };
 
 std::string LoadFile(const std::string &path)
@@ -116,6 +116,7 @@ void RenderThread::ThreadFunc(u32 targetDevice)
 
 		if (!DrawFrame())
 			break;
+		std::this_thread::sleep_for(std::chrono::milliseconds(5));
 	}
 
 	appData.disp.deviceWaitIdle();
@@ -132,12 +133,17 @@ bool RenderThread::InitVulkan(u32 targetDevice)
 			CreateSwapchain() &&
 			GetQueues() &&
 			CreateRenderPass() &&
-			CreateDescriptorSetLayout() &&
+			CreateDescriptorSetLayouts() &&
 			CreateGraphicsPipeline() &&
+			CreateComputePipeline() &&
+			CreateDepthResources() &&
 			CreateFramebuffers() &&
 			CreateCommandPool() &&
+			CreateTextureImage() &&
+			CreateTextureImageView() &&
+			CreateTextureSampler() &&
 			CreateVertexBuffer(sceneData.mesh) &&
-			CreateObjectBuffer(OBJECT_COUNT) &&
+			CreateObjectBuffers(OBJECT_COUNT) &&
 			CreateDescriptorPool() &&
 			CreateDescriptorSets() &&
 			CreateCommandBuffers() &&
@@ -207,7 +213,7 @@ bool RenderThread::InitDevice(u32 targetDevice)
 	vkb::InstanceBuilder instanceBuilder;
 	instanceBuilder.enable_extension(VK_KHR_SURFACE_EXTENSION_NAME);
 	instanceBuilder.enable_extension(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
-	instanceBuilder.set_app_name("Vulkan Demo").set_app_version(VK_MAKE_VERSION(1, 0, 0));
+	instanceBuilder.set_app_name("Vulkan Demo").set_app_version(VK_MAKE_VERSION(1, 4, 0));
 	instanceBuilder.set_engine_name("Ligma Engine").request_validation_layers();
 
 	instanceBuilder.set_debug_callback([](VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -268,9 +274,15 @@ bool RenderThread::InitDevice(u32 targetDevice)
 	GameThread::LogMessage("Using GPU device " + std::to_string(targetDevice) + ": " + deviceList[targetDevice].name + "\n");
 	vkb::PhysicalDevice physicalDevice = deviceList[targetDevice];
 	VkPhysicalDeviceFeatures features = {};
-	features.logicOp = 1;
+	features.logicOp = VK_TRUE;
+	features.samplerAnisotropy = VK_TRUE;
 	physicalDevice.enable_features_if_present(features);
+	physicalDevice.enable_extension_if_present(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
 	vkb::DeviceBuilder deviceBuilder{ physicalDevice };
+	VkPhysicalDeviceSynchronization2Features syncFeatures = {};
+	syncFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES;
+	syncFeatures.synchronization2 = VK_TRUE;
+	deviceBuilder.add_pNext<VkPhysicalDeviceSynchronization2Features>(&syncFeatures);
 
 	auto deviceRet = deviceBuilder.build();
 	if (!deviceRet)
@@ -280,6 +292,9 @@ bool RenderThread::InitDevice(u32 targetDevice)
 	}
 	appData.device = deviceRet.value();
 	appData.disp = appData.device.make_table();
+	VkPhysicalDeviceProperties properties{};
+	vkGetPhysicalDeviceProperties(physicalDevice, &properties);
+	appData.maxSamplerAnisotropy = properties.limits.maxSamplerAnisotropy;
 
 	return true;
 }
@@ -363,27 +378,43 @@ bool RenderThread::CreateRenderPass()
 	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
+	VkAttachmentDescription depthAttachment = {};
+	depthAttachment.format = FindDepthFormat();
+	depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
 	VkAttachmentReference colorAttachmentRef = {};
 	colorAttachmentRef.attachment = 0;
 	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	VkAttachmentReference depthAttachmentRef = {};
+	depthAttachmentRef.attachment = 1;
+	depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 	VkSubpassDescription subpass = {};
 	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &colorAttachmentRef;
+	subpass.pDepthStencilAttachment = &depthAttachmentRef;
 
 	VkSubpassDependency dependency = {};
 	dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
 	dependency.dstSubpass = 0;
-	dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependency.srcAccessMask = 0;
-	dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+	dependency.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
+	VkAttachmentDescription descriptions[2] = {colorAttachment, depthAttachment};
 	VkRenderPassCreateInfo renderPassInfo = {};
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPassInfo.attachmentCount = 1;
-	renderPassInfo.pAttachments = &colorAttachment;
+	renderPassInfo.attachmentCount = 2;
+	renderPassInfo.pAttachments = descriptions;
 	renderPassInfo.subpassCount = 1;
 	renderPassInfo.pSubpasses = &subpass;
 	renderPassInfo.dependencyCount = 1;
@@ -491,29 +522,57 @@ std::array<VkVertexInputAttributeDescription, 4> RenderThread::GetAttributeDescr
 	return attributeDescriptions;
 }
 
-bool RenderThread::CreateDescriptorSetLayout()
+bool RenderThread::CreateDescriptorSetLayouts()
 {
 	VkDescriptorSetLayoutBinding uboLayoutBinding = {};
-    uboLayoutBinding.binding = 0;
-    uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    uboLayoutBinding.descriptorCount = 1;
+	uboLayoutBinding.binding = 0;
+	uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	uboLayoutBinding.descriptorCount = 1;
 	uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 	uboLayoutBinding.pImmutableSamplers = nullptr;
 
 	VkDescriptorSetLayoutBinding objectLayoutBinding = {};
-    objectLayoutBinding.binding = 1;
-    objectLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    objectLayoutBinding.descriptorCount = 1;
+	objectLayoutBinding.binding = 1;
+	objectLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	objectLayoutBinding.descriptorCount = 1;
 	objectLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 	objectLayoutBinding.pImmutableSamplers = nullptr;
 
-	VkDescriptorSetLayoutCreateInfo layoutInfo = {};
-	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	layoutInfo.bindingCount = 2;
-	VkDescriptorSetLayoutBinding bindings[2] = { uboLayoutBinding, objectLayoutBinding };
-	layoutInfo.pBindings = bindings;
+	VkDescriptorSetLayoutBinding samplerLayoutBinding = {};
+	samplerLayoutBinding.binding = 2;
+	samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	samplerLayoutBinding.descriptorCount = 1;
+	samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	samplerLayoutBinding.pImmutableSamplers = nullptr;
 	
-	if (appData.disp.createDescriptorSetLayout(&layoutInfo, nullptr, &renderData.descriptorSetLayout) != VK_SUCCESS)
+	VkDescriptorSetLayoutBinding computeLayoutBinding0 = {};
+	computeLayoutBinding0.binding = 0;
+	computeLayoutBinding0.descriptorCount = 1;
+	computeLayoutBinding0.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	computeLayoutBinding0.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+	computeLayoutBinding0.pImmutableSamplers = nullptr;
+
+	VkDescriptorSetLayoutBinding computeLayoutBinding1 = {};
+	computeLayoutBinding1.binding = 1;
+	computeLayoutBinding1.descriptorCount = 1;
+	computeLayoutBinding1.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	computeLayoutBinding1.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+	computeLayoutBinding1.pImmutableSamplers = nullptr;
+
+	VkDescriptorSetLayoutCreateInfo layoutInfoCompute = {};
+	layoutInfoCompute.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	layoutInfoCompute.bindingCount = 2;
+	VkDescriptorSetLayoutBinding bindings0[2] = { computeLayoutBinding0, computeLayoutBinding1 };
+	layoutInfoCompute.pBindings = bindings0;
+
+	VkDescriptorSetLayoutCreateInfo layoutInfoRender = {};
+	layoutInfoRender.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	layoutInfoRender.bindingCount = 3;
+	VkDescriptorSetLayoutBinding bindings1[3] = { uboLayoutBinding, objectLayoutBinding, samplerLayoutBinding };
+	layoutInfoRender.pBindings = bindings1;
+	
+	if (appData.disp.createDescriptorSetLayout(&layoutInfoCompute, nullptr, &renderData.descriptorSetLayoutCompute) != VK_SUCCESS ||
+		appData.disp.createDescriptorSetLayout(&layoutInfoRender, nullptr, &renderData.descriptorSetLayoutRender) != VK_SUCCESS)
 	{
 		GameThread::SendErrorPopup("failed to create descriptor set layout");
 		return false;
@@ -525,8 +584,8 @@ bool RenderThread::CreateDescriptorSetLayout()
 bool RenderThread::CreateGraphicsPipeline()
 {
 	const std::filesystem::path defaultPath = std::filesystem::current_path();
-	std::string vertCode = LoadFile(std::filesystem::path(defaultPath).append("Assets/Shaders/triangle.vert.spv").string());
-	std::string fragCode = LoadFile(std::filesystem::path(defaultPath).append("Assets/Shaders/triangle.frag.spv").string());
+	std::string vertCode = LoadFile(std::filesystem::path(defaultPath).append("Assets/Shaders/cube.vert.spv").string());
+	std::string fragCode = LoadFile(std::filesystem::path(defaultPath).append("Assets/Shaders/cube.frag.spv").string());
 
 	VkShaderModule vertModule = CreateShaderModule(vertCode);
 	VkShaderModule fragModule = CreateShaderModule(fragCode);
@@ -621,10 +680,22 @@ bool RenderThread::CreateGraphicsPipeline()
 	colorBlending.blendConstants[2] = 0.0f;
 	colorBlending.blendConstants[3] = 0.0f;
 
+	VkPipelineDepthStencilStateCreateInfo depthStencil = {};
+	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+	depthStencil.depthTestEnable = VK_TRUE;
+	depthStencil.depthWriteEnable = VK_TRUE;
+	depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+	depthStencil.depthBoundsTestEnable = VK_FALSE;
+	depthStencil.minDepthBounds = 0.0f; // Optional
+	depthStencil.maxDepthBounds = 1.0f; // Optional
+	depthStencil.stencilTestEnable = VK_FALSE;
+	depthStencil.front = {}; // Optional
+	depthStencil.back = {}; // Optional
+
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
 	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 	pipelineLayoutInfo.setLayoutCount = 1;
-	pipelineLayoutInfo.pSetLayouts = &renderData.descriptorSetLayout;
+	pipelineLayoutInfo.pSetLayouts = &renderData.descriptorSetLayoutRender;
 	pipelineLayoutInfo.pushConstantRangeCount = 0;
 
 	if (appData.disp.createPipelineLayout(&pipelineLayoutInfo, nullptr, &renderData.pipelineLayout) != VK_SUCCESS)
@@ -650,6 +721,7 @@ bool RenderThread::CreateGraphicsPipeline()
 	pipelineInfo.pRasterizationState = &rasterizer;
 	pipelineInfo.pMultisampleState = &multisampling;
 	pipelineInfo.pColorBlendState = &colorBlending;
+	pipelineInfo.pDepthStencilState = &depthStencil;
 	pipelineInfo.pDynamicState = &dynamicInfo;
 	pipelineInfo.layout = renderData.pipelineLayout;
 	pipelineInfo.renderPass = renderData.renderPass;
@@ -667,17 +739,98 @@ bool RenderThread::CreateGraphicsPipeline()
 	return true;
 }
 
-bool RenderThread::CreateObjectBuffer(const u32 objectCount)
+bool RenderThread::CreateComputePipeline()
 {
-	VkDeviceSize bufferSize = sizeof(Vec4) * objectCount * 2 + sizeof(Mat4);
+	const std::filesystem::path defaultPath = std::filesystem::current_path();
+	std::string compCodeSort0 = LoadFile(std::filesystem::path(defaultPath).append("Assets/Shaders/sort0.comp.spv").string());
+	std::string compCodeSort1 = LoadFile(std::filesystem::path(defaultPath).append("Assets/Shaders/sort1.comp.spv").string());
+	std::string compCodeSim0 = LoadFile(std::filesystem::path(defaultPath).append("Assets/Shaders/sim0.comp.spv").string());
+	std::string compCodeSim1 = LoadFile(std::filesystem::path(defaultPath).append("Assets/Shaders/sim1.comp.spv").string());
+
+	VkShaderModule compModuleSort0 = CreateShaderModule(compCodeSort0);
+	VkShaderModule compModuleSort1 = CreateShaderModule(compCodeSort1);
+	VkShaderModule compModuleSim0 = CreateShaderModule(compCodeSim0);
+	VkShaderModule compModuleSim1 = CreateShaderModule(compCodeSim1);
+	if (compModuleSort0 == VK_NULL_HANDLE || compModuleSort1 == VK_NULL_HANDLE || compModuleSim0 == VK_NULL_HANDLE || compModuleSim1 == VK_NULL_HANDLE)
+	{
+		GameThread::SendErrorPopup("failed to create compute shader module");
+		return false;
+	}
+
+
+	VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
+	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	pipelineLayoutInfo.setLayoutCount = 1;
+	pipelineLayoutInfo.pSetLayouts = &renderData.descriptorSetLayoutCompute;
+
+	if (appData.disp.createPipelineLayout(&pipelineLayoutInfo, nullptr, &renderData.computePipelineLayout) != VK_SUCCESS)
+	{
+		GameThread::SendErrorPopup("failed to create compute pipeline layout!");
+		return false;
+	}
+
+	VkShaderModule modules[4] = {compModuleSort0, compModuleSort1, compModuleSim0, compModuleSim1};
+	VkPipelineShaderStageCreateInfo compStageInfo[4] = {};
+	VkComputePipelineCreateInfo pipelineInfo[4] = {};
+
+	for (u32 i = 0; i < 4; i++)
+	{
+		compStageInfo[i].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+		compStageInfo[i].stage = VK_SHADER_STAGE_COMPUTE_BIT;
+		compStageInfo[i].module = modules[i];
+		compStageInfo[i].pName = "main";
+
+		pipelineInfo[i].sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+		pipelineInfo[i].layout = renderData.computePipelineLayout;
+		pipelineInfo[i].stage = compStageInfo[i];
+	}
+
+	if (appData.disp.createComputePipelines(VK_NULL_HANDLE, 4, pipelineInfo, nullptr, renderData.computePipelines) != VK_SUCCESS)
+	{
+		GameThread::SendErrorPopup("failed to create compute pipelines!");
+		return false;
+	}
+
+	appData.disp.destroyShaderModule(compModuleSort0, nullptr);
+	appData.disp.destroyShaderModule(compModuleSort1, nullptr);
+	appData.disp.destroyShaderModule(compModuleSim0, nullptr);
+	appData.disp.destroyShaderModule(compModuleSim1, nullptr);
+
+	return true;
+}
+
+u32 align(unsigned int x, unsigned int a)
+{
+	unsigned int r = x % a;
+	return r ? x + (a - r) : x;
+}
+
+bool RenderThread::CreateObjectBuffers(u32 objectCount)
+{
+	VkDeviceSize bufferSizeA = sizeof(Mat4);
+	renderData.sizeObjects = align(sizeof(Vec4) * 4 * objectCount, 0x40);
+	renderData.sizeSortBuf = align(SORT_THREAD_COUNT * CHUNK_COUNT * SORT_THREAD_OBJECT_PER_CHUNK * sizeof(u32), 0x40);
+	renderData.sizeMergeBuf = align(MAX_OBJECTS_PER_CHUNK * CHUNK_COUNT * sizeof(u32), 0x40);
+	renderData.mainBufSize = renderData.sizeObjects + renderData.sizeSortBuf + renderData.sizeMergeBuf;
+	VkDeviceSize bufferSizeB = renderData.mainBufSize;
 	renderData.objectBuffers.resize(renderData.swapchainImageViews.size());
 	renderData.objectBuffersMemory.resize(renderData.swapchainImageViews.size());
 	renderData.objectBuffersMapped.resize(renderData.swapchainImageViews.size());
 
+	VkBuffer stagingBuffer;
+	VkDeviceMemory stagingBufferMemory;
+	CreateBuffer(bufferSizeB, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+
+	auto sourceData = appData.gm->GetInitialSimulationData();
+	void* data;
+	appData.disp.mapMemory(stagingBufferMemory, 0, renderData.sizeObjects, 0, &data);
+	memcpy(data, sourceData.data(), renderData.sizeObjects);
+	appData.disp.unmapMemory(stagingBufferMemory);
+
 	bool success = true;
 	for (u32 i = 0; i < renderData.swapchainImageViews.size(); i++)
 	{
-		success &= CreateBuffer(bufferSize,
+		success &= CreateBuffer(bufferSizeA,
 								VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 								VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 								renderData.objectBuffers[i],
@@ -685,10 +838,22 @@ bool RenderThread::CreateObjectBuffer(const u32 objectCount)
 	
 		success &= appData.disp.mapMemory(	renderData.objectBuffersMemory[i],
 											0,
-											bufferSize,
+											bufferSizeA,
 											0,
 											reinterpret_cast<void**>(&renderData.objectBuffersMapped[i])) == VK_SUCCESS;
 	}
+
+	success &= CreateBuffer(bufferSizeB,
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+		renderData.computeBuffer,
+		renderData.computeBufferMemory);
+
+	CopyBuffer(stagingBuffer, renderData.computeBuffer, bufferSizeB);
+
+	appData.disp.destroyBuffer(stagingBuffer, nullptr);
+	appData.disp.freeMemory(stagingBufferMemory, nullptr);
+
 	return success;
 }
 
@@ -701,12 +866,12 @@ bool RenderThread::CreateFramebuffers()
 
 	for (u32 i = 0; i < renderData.swapchainImageViews.size(); i++)
 	{
-		VkImageView attachments[] = { renderData.swapchainImageViews[i] };
+		VkImageView attachments[2] = { renderData.swapchainImageViews[i], renderData.depthImageView };
 
 		VkFramebufferCreateInfo framebufferInfo = {};
 		framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 		framebufferInfo.renderPass = renderData.renderPass;
-		framebufferInfo.attachmentCount = 1;
+		framebufferInfo.attachmentCount = 2;
 		framebufferInfo.pAttachments = attachments;
 		framebufferInfo.width = appData.swapchain.extent.width;
 		framebufferInfo.height = appData.swapchain.extent.height;
@@ -746,7 +911,7 @@ bool RenderThread::CreateCommandPool()
 bool RenderThread::CreateTextureImage()
 {
 	IVec2 res;
-	u8 *pixels = Resource::Texture::ReadTexture("Assets/Textures/FISH.png", res);
+	u8 *pixels = Resource::Texture::ReadTexture("Assets/Textures/blocks.png", res);
 	if (!pixels)
 	{
 		GameThread::SendErrorPopup("failed to load texture");
@@ -768,19 +933,109 @@ bool RenderThread::CreateTextureImage()
 	CreateImage(res, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, renderData.textureImage, renderData.textureImageMemory);
 
+	TransitionImageLayout(renderData.textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+	CopyBufferToImage(stagingBuffer, renderData.textureImage, (u32)(res.x), (u32)(res.y));
+	TransitionImageLayout(renderData.textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+	appData.disp.destroyBuffer(stagingBuffer, nullptr);
+	appData.disp.freeMemory(stagingBufferMemory, nullptr);
+
 	return true;
 }
 
-VkCommandBuffer RenderThread::BeginSingleTimeCommands()
+bool RenderThread::CreateTextureImageView()
 {
-	return VkCommandBuffer{};
+	renderData.textureImageView = CreateImageView(renderData.textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
+	return renderData.textureImageView != nullptr;
+}
+
+bool RenderThread::CreateTextureSampler()
+{
+	VkSamplerCreateInfo samplerInfo = {};
+	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+	samplerInfo.magFilter = VK_FILTER_NEAREST;
+	samplerInfo.minFilter = VK_FILTER_NEAREST;
+	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerInfo.anisotropyEnable = VK_TRUE;
+	samplerInfo.maxAnisotropy = appData.maxSamplerAnisotropy;
+	samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+	samplerInfo.unnormalizedCoordinates = VK_FALSE;
+	samplerInfo.compareEnable = VK_FALSE;
+	samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+	samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	samplerInfo.mipLodBias = 0.0f;
+	samplerInfo.minLod = 0.0f;
+	samplerInfo.maxLod = 0.0f;
+
+	if (appData.disp.createSampler(&samplerInfo, nullptr, &renderData.textureSampler) != VK_SUCCESS)
+	{
+		GameThread::SendErrorPopup("failed to create texture sampler!");
+		return false;
+	}
+
+	return true;
+}
+
+VkImageView RenderThread::CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags)
+{
+	VkImageViewCreateInfo viewInfo = {};
+	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	viewInfo.image = image;
+	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	viewInfo.format = format;
+	viewInfo.subresourceRange.aspectMask = aspectFlags;
+	viewInfo.subresourceRange.baseMipLevel = 0;
+	viewInfo.subresourceRange.levelCount = 1;
+	viewInfo.subresourceRange.baseArrayLayer = 0;
+	viewInfo.subresourceRange.layerCount = 1;
+
+	VkImageView imageView = nullptr;
+	if (vkCreateImageView(appData.device, &viewInfo, nullptr, &imageView) != VK_SUCCESS)
+		GameThread::SendErrorPopup("failed to create image view!");
+
+	return imageView;
+}
+
+VkCommandBuffer RenderThread::BeginSingleTimeCommands(VkCommandPool targetPool)
+{
+	VkCommandBufferAllocateInfo allocInfo = {};
+	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandPool = targetPool;
+	allocInfo.commandBufferCount = 1;
+
+	VkCommandBuffer commandBuffer;
+	appData.disp.allocateCommandBuffers(&allocInfo, &commandBuffer);
+	
+	VkCommandBufferBeginInfo beginInfo = {};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	appData.disp.beginCommandBuffer(commandBuffer, &beginInfo);
+
+	return commandBuffer;
+}
+
+void RenderThread::EndSingleTimeCommands(VkCommandBuffer commandBuffer, VkCommandPool targetPool, VkQueue targetQueue)
+{
+	appData.disp.endCommandBuffer(commandBuffer);
+
+	VkSubmitInfo submitInfo = {};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &commandBuffer;
+
+	appData.disp.queueSubmit(targetQueue, 1, &submitInfo, VK_NULL_HANDLE);
+	appData.disp.queueWaitIdle(targetQueue);
+	appData.disp.freeCommandBuffers(targetPool, 1, &commandBuffer);
 }
 
 bool RenderThread::CreateDepthResources()
 {
 	VkFormat depthFormat = FindDepthFormat();
-	//CreateImage(res.x, res.y, depthFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, renderData.depthImage, renderData.depthImageMemory);
-	//renderData.depthImageView = CreateImageView(depthImage, depthFormat);
+	CreateImage(swapRes, depthFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, renderData.depthImage, renderData.depthImageMemory);
+	renderData.depthImageView = CreateImageView(renderData.depthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
 
 	return true;
 }
@@ -791,9 +1046,9 @@ bool RenderThread::CreateVertexBuffer(const Resource::Mesh &m)
 
 	VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
 
-    VkBuffer stagingBuffer;
-    VkDeviceMemory stagingBufferMemory;
-    CreateBuffer(	bufferSize,
+	VkBuffer stagingBuffer;
+	VkDeviceMemory stagingBufferMemory;
+	CreateBuffer(	bufferSize,
 					VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 					VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 					stagingBuffer,
@@ -804,7 +1059,7 @@ bool RenderThread::CreateVertexBuffer(const Resource::Mesh &m)
 	std::memcpy(data, vertices.data(), bufferSize);
 	appData.disp.unmapMemory(stagingBufferMemory);
 
-    CreateBuffer(	bufferSize,
+	CreateBuffer(	bufferSize,
 					VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
 					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 					renderData.vertexBuffer,
@@ -813,45 +1068,111 @@ bool RenderThread::CreateVertexBuffer(const Resource::Mesh &m)
 	CopyBuffer(stagingBuffer, renderData.vertexBuffer, bufferSize);
 
 	appData.disp.destroyBuffer(stagingBuffer, nullptr);
-    appData.disp.freeMemory(stagingBufferMemory, nullptr);
+	appData.disp.freeMemory(stagingBufferMemory, nullptr);
 	
 	return true;
 }
 
 bool RenderThread::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
 {
-	VkCommandBufferAllocateInfo allocInfo = {};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool = renderData.transfertCommandPool;
-    allocInfo.commandBufferCount = 1;
-
-    VkCommandBuffer commandBuffer;
-	appData.disp.allocateCommandBuffers(&allocInfo, &commandBuffer);
-    
-	VkCommandBufferBeginInfo beginInfo = {};
-	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-	appData.disp.beginCommandBuffer(commandBuffer, &beginInfo);
+	VkCommandBuffer commandBuffer = BeginSingleTimeCommands(renderData.transfertCommandPool);
 	
-	VkBufferCopy copyRegion{};
+	VkBufferCopy copyRegion = {};
 	copyRegion.srcOffset = 0; // Optional
 	copyRegion.dstOffset = 0; // Optional
 	copyRegion.size = size;
 	appData.disp.cmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
 
-	appData.disp.endCommandBuffer(commandBuffer);
-
-	VkSubmitInfo submitInfo = {};
-	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &commandBuffer;
-
-	appData.disp.queueSubmit(renderData.transferQueue, 1, &submitInfo, VK_NULL_HANDLE);
-	appData.disp.queueWaitIdle(renderData.transferQueue);
-	appData.disp.freeCommandBuffers(renderData.transfertCommandPool, 1, &commandBuffer);
+	EndSingleTimeCommands(commandBuffer, renderData.transfertCommandPool, renderData.transferQueue);
 
 	return true;
+}
+
+bool RenderThread::TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
+{
+	VkCommandBuffer commandBuffer = BeginSingleTimeCommands(renderData.commandPool);
+
+	VkImageMemoryBarrier barrier = {};
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	barrier.oldLayout = oldLayout;
+	barrier.newLayout = newLayout;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = image;
+	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.baseMipLevel = 0;
+	barrier.subresourceRange.levelCount = 1;
+	barrier.subresourceRange.baseArrayLayer = 0;
+	barrier.subresourceRange.layerCount = 1;
+	barrier.srcAccessMask = 0; // TODO
+	barrier.dstAccessMask = 0; // TODO
+
+	VkPipelineStageFlags sourceStage;
+	VkPipelineStageFlags destinationStage;
+
+	if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+	{
+		barrier.srcAccessMask = 0;
+		barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+		sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+		destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+	} else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+		sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	} else
+	{
+		GameThread::SendErrorPopup("unsupported layout transition!");
+	}
+
+	appData.disp.cmdPipelineBarrier(
+		commandBuffer,
+		sourceStage, destinationStage,
+		0,
+		0, nullptr,
+		0, nullptr,
+		1, &barrier
+	);
+
+	EndSingleTimeCommands(commandBuffer, renderData.commandPool, renderData.graphicsQueue);
+
+	return true;
+}
+
+void RenderThread::CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height)
+{
+	VkCommandBuffer commandBuffer = BeginSingleTimeCommands(renderData.transfertCommandPool);
+
+	VkBufferImageCopy region = {};
+	region.bufferOffset = 0;
+	region.bufferRowLength = 0;
+	region.bufferImageHeight = 0;
+
+	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.imageSubresource.mipLevel = 0;
+	region.imageSubresource.baseArrayLayer = 0;
+	region.imageSubresource.layerCount = 1;
+
+	region.imageOffset = {0, 0, 0};
+	region.imageExtent = {
+		width,
+		height,
+		1
+	};
+
+	appData.disp.cmdCopyBufferToImage(
+		commandBuffer,
+		buffer,
+		image,
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		1,
+		&region
+	);
+
+	EndSingleTimeCommands(commandBuffer, renderData.transfertCommandPool, renderData.transferQueue);
 }
 
 bool RenderThread::CreateCommandBuffers()
@@ -899,9 +1220,11 @@ bool RenderThread::CreateCommandBuffers()
 		renderPassInfo.framebuffer = renderData.framebuffers[i];
 		renderPassInfo.renderArea.offset = { 0, 0 };
 		renderPassInfo.renderArea.extent = appData.swapchain.extent;
-		VkClearValue clearColor{ { { 0.0f, 0.0f, 0.0f, 0.0f } } };
-		renderPassInfo.clearValueCount = 1;
-		renderPassInfo.pClearValues = &clearColor;
+		VkClearValue clearColors[2];
+		clearColors[0].color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+		clearColors[1].depthStencil = { 1.0f, 0 };
+		renderPassInfo.clearValueCount = 2;
+		renderPassInfo.pClearValues = clearColors;
 
 		VkViewport viewport = {};
 		viewport.x = 0.0f;
@@ -915,6 +1238,49 @@ bool RenderThread::CreateCommandBuffers()
 		scissor.offset = { 0, 0 };
 		scissor.extent = appData.swapchain.extent;
 
+		// Sort 0
+		appData.disp.cmdBindPipeline(renderData.commandBuffers[i], VK_PIPELINE_BIND_POINT_COMPUTE, renderData.computePipelines[0]);
+		appData.disp.cmdBindDescriptorSets(renderData.commandBuffers[i], VK_PIPELINE_BIND_POINT_COMPUTE, renderData.computePipelineLayout, 0, 1, &renderData.computeDescriptorSets[i], 0, 0);
+
+		appData.disp.cmdDispatch(renderData.commandBuffers[i], SORT_THREAD_COUNT, 1, 1);
+
+		VkMemoryBarrier2KHR memoryBarrier0 = {};
+		memoryBarrier0.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR;
+		memoryBarrier0.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
+		memoryBarrier0.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT_KHR,
+		memoryBarrier0.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
+		memoryBarrier0.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR;
+
+		VkDependencyInfoKHR dependencyInfo0 = {};
+		dependencyInfo0.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR;
+		dependencyInfo0.memoryBarrierCount = 1;
+		dependencyInfo0.pMemoryBarriers = &memoryBarrier0;
+		//dependencyInfo0.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+		
+		appData.disp.cmdPipelineBarrier2KHR(renderData.commandBuffers[i], &dependencyInfo0);
+
+		// Sort 1
+		appData.disp.cmdBindPipeline(renderData.commandBuffers[i], VK_PIPELINE_BIND_POINT_COMPUTE, renderData.computePipelines[1]);
+		appData.disp.cmdBindDescriptorSets(renderData.commandBuffers[i], VK_PIPELINE_BIND_POINT_COMPUTE, renderData.computePipelineLayout, 0, 1, &renderData.computeDescriptorSets[i + MAX_FRAMES_IN_FLIGHT], 0, 0);
+
+		appData.disp.cmdDispatch(renderData.commandBuffers[i], 1, 1, BLOCK_SIZE_Z);
+		appData.disp.cmdPipelineBarrier2KHR(renderData.commandBuffers[i], &dependencyInfo0);
+
+		// Sim 0
+		appData.disp.cmdBindPipeline(renderData.commandBuffers[i], VK_PIPELINE_BIND_POINT_COMPUTE, renderData.computePipelines[2]);
+		appData.disp.cmdBindDescriptorSets(renderData.commandBuffers[i], VK_PIPELINE_BIND_POINT_COMPUTE, renderData.computePipelineLayout, 0, 1, &renderData.computeDescriptorSets[i + MAX_FRAMES_IN_FLIGHT * 2], 0, 0);
+
+		appData.disp.cmdDispatch(renderData.commandBuffers[i], 1, 1, BLOCK_SIZE_Z);
+		appData.disp.cmdPipelineBarrier2KHR(renderData.commandBuffers[i], &dependencyInfo0);
+
+		// Sim 1
+		appData.disp.cmdBindPipeline(renderData.commandBuffers[i], VK_PIPELINE_BIND_POINT_COMPUTE, renderData.computePipelines[3]);
+		appData.disp.cmdBindDescriptorSets(renderData.commandBuffers[i], VK_PIPELINE_BIND_POINT_COMPUTE, renderData.computePipelineLayout, 0, 1, &renderData.computeDescriptorSets[i + MAX_FRAMES_IN_FLIGHT * 3], 0, 0);
+
+		appData.disp.cmdDispatch(renderData.commandBuffers[i], 1, 1, BLOCK_SIZE_Z);
+
+
+		// Render
 		appData.disp.cmdSetViewport(renderData.commandBuffers[i], 0, 1, &viewport);
 		appData.disp.cmdSetScissor(renderData.commandBuffers[i], 0, 1, &scissor);
 
@@ -926,7 +1292,7 @@ bool RenderThread::CreateCommandBuffers()
 		VkDeviceSize offsets[] = { 0 };
 		appData.disp.cmdBindVertexBuffers(renderData.commandBuffers[i], 0, 1, vertexBuffers, offsets);
 
-		appData.disp.cmdBindDescriptorSets(renderData.commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, renderData.pipelineLayout, 0, 1, &renderData.descriptorSets[renderData.currentFrame], 0, nullptr);
+		appData.disp.cmdBindDescriptorSets(renderData.commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, renderData.pipelineLayout, 0, 1, &renderData.descriptorSets[i], 0, nullptr);
 
 		appData.disp.cmdDraw(renderData.commandBuffers[i], (u32)(sceneData.mesh.GetVertices().size()), OBJECT_COUNT, 0, 0);
 
@@ -943,30 +1309,30 @@ bool RenderThread::CreateCommandBuffers()
 
 bool RenderThread::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory)
 {
-    VkBufferCreateInfo bufferInfo = {};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = size;
-    bufferInfo.usage = usage;
-    bufferInfo.sharingMode = VK_SHARING_MODE_CONCURRENT;
+	VkBufferCreateInfo bufferInfo = {};
+	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufferInfo.size = size;
+	bufferInfo.usage = usage;
+	bufferInfo.sharingMode = VK_SHARING_MODE_CONCURRENT;
 	bufferInfo.queueFamilyIndexCount = 2;
 	auto transfer = appData.device.get_queue_index(vkb::QueueType::transfer);
 	auto graph = appData.device.get_queue_index(vkb::QueueType::graphics);
 	u32 queueFamilies[2] = {appData.device.get_queue_index(vkb::QueueType::graphics).value(), transfer.has_value() ? transfer.value() : graph.has_value()};
 	bufferInfo.pQueueFamilyIndices = queueFamilies;
 
-    if (appData.disp.createBuffer(&bufferInfo, nullptr, &buffer) != VK_SUCCESS)
+	if (appData.disp.createBuffer(&bufferInfo, nullptr, &buffer) != VK_SUCCESS)
 	{
-        GameThread::SendErrorPopup("failed to create buffer!");
+		GameThread::SendErrorPopup("failed to create buffer!");
 		return false;
-    }
+	}
 
-    VkMemoryRequirements memRequirements;
+	VkMemoryRequirements memRequirements;
 	appData.disp.getBufferMemoryRequirements(buffer, &memRequirements);
 
-    VkMemoryAllocateInfo allocInfo = {};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = FindMemoryType(memRequirements.memoryTypeBits, properties);
+	VkMemoryAllocateInfo allocInfo = {};
+	allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocInfo.allocationSize = memRequirements.size;
+	allocInfo.memoryTypeIndex = FindMemoryType(memRequirements.memoryTypeBits, properties);
 
 	if (appData.disp.allocateMemory(&allocInfo, nullptr, &bufferMemory) != VK_SUCCESS)
 	{
@@ -1021,18 +1387,29 @@ bool RenderThread::CreateDescriptorPool()
 	VkDescriptorPoolSize poolSize1 = {};
 	poolSize1.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	poolSize1.descriptorCount = 256;
+	VkDescriptorPoolSize poolSize2 = {};
+	poolSize2.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	poolSize2.descriptorCount = 256;
 
-	VkDescriptorPoolSize pools[2] = {poolSize0, poolSize1};
+	VkDescriptorPoolSize pools[3] = {poolSize0, poolSize1, poolSize2};
 	VkDescriptorPoolCreateInfo poolInfo = {};
 	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	poolInfo.poolSizeCount = 2;
+	poolInfo.poolSizeCount = 3;
 	poolInfo.pPoolSizes = pools;
 	poolInfo.maxSets = 256;
 
-	
-	if (appData.disp.createDescriptorPool(&poolInfo, nullptr, &renderData.descriptorPool) != VK_SUCCESS)
+	VkDescriptorPoolSize poolsCompute[2] = {poolSize1, poolSize1};
+	VkDescriptorPoolCreateInfo poolInfoCompute = {};
+	poolInfoCompute.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfoCompute.poolSizeCount = 2;
+	poolInfoCompute.pPoolSizes = poolsCompute;
+	poolInfoCompute.maxSets = 256;
+
+
+	if (appData.disp.createDescriptorPool(&poolInfo, nullptr, &renderData.descriptorPool) != VK_SUCCESS ||
+		appData.disp.createDescriptorPool(&poolInfoCompute, nullptr, &renderData.descriptorPoolCompute) != VK_SUCCESS)
 	{
-	    GameThread::SendErrorPopup("failed to create descriptor pool");
+		GameThread::SendErrorPopup("failed to create descriptor pool");
 		return false;
 	}
 
@@ -1041,12 +1418,19 @@ bool RenderThread::CreateDescriptorPool()
 
 bool RenderThread::CreateDescriptorSets()
 {
-	std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, renderData.descriptorSetLayout);
+	std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, renderData.descriptorSetLayoutRender);
 	VkDescriptorSetAllocateInfo allocInfo = {};
 	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 	allocInfo.descriptorPool = renderData.descriptorPool;
 	allocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
 	allocInfo.pSetLayouts = layouts.data();
+
+	std::vector<VkDescriptorSetLayout> layoutsCompute(MAX_FRAMES_IN_FLIGHT * 4, renderData.descriptorSetLayoutCompute);
+	VkDescriptorSetAllocateInfo allocInfoCompute = {};
+	allocInfoCompute.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfoCompute.descriptorPool = renderData.descriptorPoolCompute;
+	allocInfoCompute.descriptorSetCount = MAX_FRAMES_IN_FLIGHT * 4;
+	allocInfoCompute.pSetLayouts = layoutsCompute.data();
 
 	renderData.descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
 	if (appData.disp.allocateDescriptorSets(&allocInfo, renderData.descriptorSets.data()) != VK_SUCCESS)
@@ -1055,43 +1439,68 @@ bool RenderThread::CreateDescriptorSets()
 		return false;
 	}
 
+	renderData.computeDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT*4);
+	if (appData.disp.allocateDescriptorSets(&allocInfoCompute, renderData.computeDescriptorSets.data()) != VK_SUCCESS)
+	{
+		GameThread::SendErrorPopup("failed to allocate descriptor sets");
+		return false;
+	}
+
 	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 	{
-		VkDescriptorBufferInfo bufferInfo0 = {};
-		bufferInfo0.buffer = renderData.objectBuffers[i];
-		bufferInfo0.offset = 0;
-		bufferInfo0.range = sizeof(Mat4);
+		VkDescriptorBufferInfo bufferInfoUBO = {};
+		bufferInfoUBO.buffer = renderData.objectBuffers[i];
+		bufferInfoUBO.offset = 0;
+		bufferInfoUBO.range = sizeof(Mat4);
 
-		VkDescriptorBufferInfo bufferInfo1 = {};
-		bufferInfo1.buffer = renderData.objectBuffers[i];
-		bufferInfo1.offset = sizeof(Mat4);
-		bufferInfo1.range = sizeof(Vec4) * OBJECT_COUNT * 2;
+		VkDescriptorBufferInfo bufferInfoLast = {};
+		bufferInfoLast.buffer = renderData.computeBuffer;
+		bufferInfoLast.offset = 0;
+		bufferInfoLast.range = renderData.sizeObjects;
 
-		VkWriteDescriptorSet descriptorWrite0 = {};
-		descriptorWrite0.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrite0.dstSet = renderData.descriptorSets[i];
-		descriptorWrite0.dstBinding = 0;
-		descriptorWrite0.dstArrayElement = 0;
-		descriptorWrite0.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		descriptorWrite0.descriptorCount = 1;
-		descriptorWrite0.pBufferInfo = &bufferInfo0;
-		descriptorWrite0.pImageInfo = nullptr; // Optional
-		descriptorWrite0.pTexelBufferView = nullptr; // Optional
+		VkDescriptorBufferInfo bufferInfoObjects = {};
+		bufferInfoObjects.buffer = renderData.computeBuffer;
+		bufferInfoObjects.offset = 0;
+		bufferInfoObjects.range = renderData.sizeObjects;
 
-		VkWriteDescriptorSet descriptorWrite1 = {};
-		descriptorWrite1.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrite1.dstSet = renderData.descriptorSets[i];
-		descriptorWrite1.dstBinding = 1;
-		descriptorWrite1.dstArrayElement = 0;
-		descriptorWrite1.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		descriptorWrite1.descriptorCount = 1;
-		descriptorWrite1.pBufferInfo = &bufferInfo1;
-		descriptorWrite1.pImageInfo = nullptr; // Optional
-		descriptorWrite1.pTexelBufferView = nullptr; // Optional
+		VkDescriptorBufferInfo bufferInfoMerge = {};
+		bufferInfoMerge.buffer = renderData.computeBuffer;
+		bufferInfoMerge.offset = renderData.sizeObjects;
+		bufferInfoMerge.range = renderData.sizeMergeBuf;
+
+		VkDescriptorBufferInfo bufferInfoSort = {};
+		bufferInfoSort.buffer = renderData.computeBuffer;
+		bufferInfoSort.offset = renderData.sizeObjects + renderData.sizeMergeBuf;
+		bufferInfoSort.range = renderData.sizeSortBuf;
+
+		VkDescriptorImageInfo imageInfo = {};
+		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		imageInfo.imageView = renderData.textureImageView;
+		imageInfo.sampler = renderData.textureSampler;
 
 
-		VkWriteDescriptorSet descriptorArray[2] = {descriptorWrite0, descriptorWrite1};
-		appData.disp.updateDescriptorSets(2, descriptorArray, 0, nullptr);
+		VkWriteDescriptorSet descriptorWriteUBO = CreateWriteDescriptorSet(renderData.descriptorSets[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, &bufferInfoUBO);
+		VkWriteDescriptorSet descriptorWriteObjects = CreateWriteDescriptorSet(renderData.descriptorSets[i], 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &bufferInfoObjects);
+		VkWriteDescriptorSet descriptorWriteImage = CreateWriteDescriptorSet(renderData.descriptorSets[i], 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &imageInfo);
+
+		VkWriteDescriptorSet descriptorWriteSort0A = CreateWriteDescriptorSet(renderData.computeDescriptorSets[i], 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &bufferInfoObjects);
+		VkWriteDescriptorSet descriptorWriteSort0B = CreateWriteDescriptorSet(renderData.computeDescriptorSets[i], 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &bufferInfoSort);
+
+		VkWriteDescriptorSet descriptorWriteSort1A = CreateWriteDescriptorSet(renderData.computeDescriptorSets[i + MAX_FRAMES_IN_FLIGHT], 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &bufferInfoSort);
+		VkWriteDescriptorSet descriptorWriteSort1B = CreateWriteDescriptorSet(renderData.computeDescriptorSets[i + MAX_FRAMES_IN_FLIGHT], 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &bufferInfoMerge);
+
+		VkWriteDescriptorSet descriptorWriteSim0A = CreateWriteDescriptorSet(renderData.computeDescriptorSets[i + MAX_FRAMES_IN_FLIGHT * 2], 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &bufferInfoObjects);
+		VkWriteDescriptorSet descriptorWriteSim0B = CreateWriteDescriptorSet(renderData.computeDescriptorSets[i + MAX_FRAMES_IN_FLIGHT * 2], 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &bufferInfoMerge);
+
+		VkWriteDescriptorSet descriptorWriteSim1A = CreateWriteDescriptorSet(renderData.computeDescriptorSets[i + MAX_FRAMES_IN_FLIGHT * 3], 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &bufferInfoObjects);
+		VkWriteDescriptorSet descriptorWriteSim1B = CreateWriteDescriptorSet(renderData.computeDescriptorSets[i + MAX_FRAMES_IN_FLIGHT * 3], 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &bufferInfoLast);
+
+		VkWriteDescriptorSet descriptorArray[11] = {descriptorWriteUBO, descriptorWriteObjects, descriptorWriteImage,
+													descriptorWriteSort0A, descriptorWriteSort0B,
+													descriptorWriteSort1A, descriptorWriteSort1B,
+													descriptorWriteSim0A, descriptorWriteSim0B,
+													descriptorWriteSim1A, descriptorWriteSim1B};
+		appData.disp.updateDescriptorSets(11, descriptorArray, 0, nullptr);
 	}
 
 	return true;
@@ -1107,6 +1516,10 @@ bool RenderThread::RecreateSwapchain()
 	appData.disp.deviceWaitIdle();
 	if (renderData.commandPool != VK_NULL_HANDLE)
 	{
+		appData.disp.destroyImageView(renderData.depthImageView, nullptr);
+		appData.disp.destroyImage(renderData.depthImage, nullptr);
+		appData.disp.freeMemory(renderData.depthImageMemory, nullptr);
+
 		appData.disp.destroyCommandPool(renderData.commandPool, nullptr);
 		appData.disp.destroyCommandPool(renderData.transfertCommandPool, nullptr);
 		renderData.commandPool = VK_NULL_HANDLE;
@@ -1123,9 +1536,11 @@ bool RenderThread::RecreateSwapchain()
 			return true;
 		return false;
 	}
-	if (!CreateFramebuffers()) return false;
-	if (!CreateCommandPool()) return false;
-	if (!CreateCommandBuffers()) return false;
+	if (!CreateDepthResources() ||
+		!CreateFramebuffers() ||
+		!CreateCommandPool() ||
+		!CreateCommandBuffers())
+		return false;
 	resized = false;
 	return true;
 }
@@ -1139,11 +1554,6 @@ bool RenderThread::UpdateUniformBuffer(u32 image)
 	{
 		dataPtr[i] = matPtr[i];
 	}
-
-	const auto& data = appData.gm->GetSimulationData();
-	if (data.size() < OBJECT_COUNT * 2)
-		return true;
-	std::copy(data.data(), data.data() + OBJECT_COUNT * 2, dataPtr + 4);
 
 	return true;
 }
@@ -1170,9 +1580,9 @@ VkFormat RenderThread::FindSupportedFormat(const std::vector<VkFormat>& candidat
 		VkFormatProperties props;
 		vkGetPhysicalDeviceFormatProperties(appData.device.physical_device, format, &props);
 		if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features)
-		    return format;
+			return format;
 		else if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features)
-		    return format;
+			return format;
 	}
 
 	GameThread::SendErrorPopup("failed to find supported format!");
@@ -1181,16 +1591,31 @@ VkFormat RenderThread::FindSupportedFormat(const std::vector<VkFormat>& candidat
 
 VkFormat RenderThread::FindDepthFormat()
 {
-    return FindSupportedFormat(
-        {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
-        VK_IMAGE_TILING_OPTIMAL,
-        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
-    );
+	return FindSupportedFormat(
+		{VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+		VK_IMAGE_TILING_OPTIMAL,
+		VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
+	);
+}
+
+VkWriteDescriptorSet RenderThread::CreateWriteDescriptorSet(VkDescriptorSet dstSet, u32 binding, VkDescriptorType type, VkDescriptorBufferInfo * bufferInfo, VkDescriptorImageInfo * imageInfo)
+{
+	VkWriteDescriptorSet result = {};
+	result.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	result.dstSet = dstSet;
+	result.dstBinding = binding;
+	result.dstArrayElement = 0;
+	result.descriptorType = type;
+	result.descriptorCount = 1;
+	result.pBufferInfo = bufferInfo;
+	result.pImageInfo = imageInfo;
+
+	return result;
 }
 
 bool RenderThread::HasStencilComponent(VkFormat format)
 {
-    return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
+	return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
 }
 
 bool RenderThread::DrawFrame()
@@ -1307,14 +1732,31 @@ void RenderThread::Cleanup()
 		appData.disp.destroyBuffer(renderData.objectBuffers[i], nullptr);
 		appData.disp.freeMemory(renderData.objectBuffersMemory[i], nullptr);
 	}
+	appData.disp.destroyBuffer(renderData.computeBuffer, nullptr);
+	appData.disp.freeMemory(renderData.computeBufferMemory, nullptr);
 
 	appData.disp.destroyPipeline(renderData.graphicsPipeline, nullptr);
+	for (u32 i = 0; i < 4; i++)
+	{
+		appData.disp.destroyPipeline(renderData.computePipelines[i], nullptr);
+	}
 	appData.disp.destroyPipelineLayout(renderData.pipelineLayout, nullptr);
+	appData.disp.destroyPipelineLayout(renderData.computePipelineLayout, nullptr);
 	appData.disp.destroyRenderPass(renderData.renderPass, nullptr);
 	appData.disp.destroyBuffer(renderData.vertexBuffer, nullptr);
 	appData.disp.destroyDescriptorPool(renderData.descriptorPool, nullptr);
-	appData.disp.destroyDescriptorSetLayout(renderData.descriptorSetLayout, nullptr);
+	appData.disp.destroyDescriptorPool(renderData.descriptorPoolCompute, nullptr);
+	appData.disp.destroyDescriptorSetLayout(renderData.descriptorSetLayoutRender, nullptr);
+	appData.disp.destroyDescriptorSetLayout(renderData.descriptorSetLayoutCompute, nullptr);
 	appData.disp.freeMemory(renderData.vertexBufferMemory, nullptr);
+	appData.disp.destroySampler(renderData.textureSampler, nullptr);
+	appData.disp.destroyImageView(renderData.textureImageView, nullptr);
+	appData.disp.destroyImage(renderData.textureImage, nullptr);
+	appData.disp.freeMemory(renderData.textureImageMemory, nullptr);
+
+	appData.disp.destroyImageView(renderData.depthImageView, nullptr);
+	appData.disp.destroyImage(renderData.depthImage, nullptr);
+	appData.disp.freeMemory(renderData.depthImageMemory, nullptr);
 
 	appData.swapchain.destroy_image_views(renderData.swapchainImageViews);
 
