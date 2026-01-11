@@ -153,7 +153,8 @@ void GameThread::InitThread()
 	SetThreadDescription(GetCurrentThread(), L"Game Thread");
 	std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
 	start = now.time_since_epoch();
-	/*
+
+#if 0
 	srand((u32)(std::chrono::duration_cast<std::chrono::milliseconds>(start).count()));
 
 	positions.resize(OBJECT_COUNT);
@@ -177,7 +178,7 @@ void GameThread::InitThread()
 	{
 		threadPool[i] = std::thread(&GameThread::ThreadPoolFunc, this);
 	}
-	*/
+#endif
 }
 
 s32 GameThread::GetCell(Maths::IVec2 pos, Maths::IVec2 &dt)
@@ -270,7 +271,7 @@ void GameThread::PostUpdate(float deltaTime)
 
 void GameThread::UpdateBuffers(const Mat4 &mat)
 {
-	/*
+#if 0
 	auto &buf = currentBuf ? bufferA : bufferB;
 	for (u32 i = 0; i < OBJECT_COUNT; i++)
 	{
@@ -281,7 +282,7 @@ void GameThread::UpdateBuffers(const Mat4 &mat)
 		buf[i*2] = Vec4(positions[i].x/10, 0, positions[i].y/10, 0);
 		buf[i*2+1] = Vec4(rot.v, rot.a);
 	}
-	*/
+#endif
 	auto &matRef = currentBuf ? vpA : vpB;
 	matRef = mat.TransposeMatrix();
 
@@ -503,15 +504,15 @@ void GameThread::ThreadFunc()
 		// Hard cap movement to 30 fps so that deltatime does not gets too big
 		if (deltaTime > 0.033f)
 			deltaTime = 0.033f;
-		/*
+#if 0
 		if (appTime > 1)
 		{
 			PreUpdate();
 			Update(deltaTime);
 			PostUpdate(deltaTime);
 		}
-		*/
-		//else
+		else
+#endif
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		
 		UpdateBuffers(vp);
@@ -519,13 +520,12 @@ void GameThread::ThreadFunc()
 		if (isUnitTest && appTime > 10.0f)
 			SendWindowMessage(EXIT_WINDOW);
 	}
-	/*
+
+#if 0
 	poolExit = true;
 	for (u32 i = 0; i < threadPool.size(); i++)
-	{
 		threadPool[i].join();
-	}
-	*/
+#endif
 }
 
 bool GameThread::ThreadPoolUpdate()
@@ -567,7 +567,9 @@ void GameThread::ThreadPoolFunc()
 	while (!poolExit)
 	{
 		ThreadPoolUpdate();
-		//if (!ThreadPoolUpdate())
-		//	std::this_thread::sleep_for(std::chrono::milliseconds(5));
+#if 0
+		if (!ThreadPoolUpdate())
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+#endif
 	}
 }

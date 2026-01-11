@@ -159,13 +159,6 @@ void RenderThread::LoadAssets()
 
 void RenderThread::UnloadAssets()
 {
-	/*
-	kernels.UnloadTextures(textures);
-	kernels.UnloadCubemaps(cubemaps);
-	kernels.UnloadMaterials();
-	kernels.UnloadMeshes(meshes);
-	kernels.ClearKernels();
-	*/
 }
 
 VkSurfaceKHR RenderThread::CreateSurfaceWin32(VkInstance instance, HINSTANCE hInstance, HWND window, VkAllocationCallbacks* allocator)
@@ -960,6 +953,41 @@ bool RenderThread::CreateTextureImage(const std::string& path)
 bool RenderThread::PreloadVideo(const std::string &path)
 {
 	std::vector<std::vector<u8>> fileData = Resource::Video::ReadVideoFrames(path);
+
+	VkBuffer stagingBuffer;
+	VkDeviceMemory stagingBufferMemory;
+	CreateBuffer(fileData[1].size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+
+	void *data;
+	appData.disp.mapMemory(stagingBufferMemory, 0, fileData[1].size(), 0, &data);
+	memcpy(data, fileData[1].data(), static_cast<size_t>(fileData[1].size()));
+	appData.disp.unmapMemory(stagingBufferMemory);
+
+	VkVideoDecodeH264PictureInfoKHR video264Info = {};
+	video264Info.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_H265_PICTURE_INFO_KHR;
+	video264Info.sliceCount = 1;
+	video264Info.pSliceOffsets = { 0 };
+
+	VkVideoDecodeInfoKHR videoInfo = {};
+	videoInfo.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_INFO_KHR;
+	videoInfo.pNext = &video264Info;
+	videoInfo.flags = 0;
+	videoInfo.srcBuffer = stagingBuffer;
+	videoInfo.srcBufferOffset = 0;
+
+
+
+	/*
+	CreateImage(res, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, renderData.textureImage, renderData.textureImageMemory);
+
+	TransitionImageLayout(renderData.textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+	CopyBufferToImage(stagingBuffer, renderData.textureImage, (u32)(res.x), (u32)(res.y));
+	TransitionImageLayout(renderData.textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+	*/
+	appData.disp.destroyBuffer(stagingBuffer, nullptr);
+	appData.disp.freeMemory(stagingBufferMemory, nullptr);
 	return true;
 }
 
