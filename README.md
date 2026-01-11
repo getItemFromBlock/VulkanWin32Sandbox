@@ -11,11 +11,19 @@ A basic lighting is applied on each face.
 
 The `Video-Decode` branch has an in-progress video decoding feature, which is unfinished.
 
+## Controls
+
+Use WASD to move (or ZQSD if using an AZERTY keyboard, the controls are layout-independent).
+the E and Q keys can be used to move the camera up or down. You can capture the mouse cursor by pressing escape.
+When captured, the mouse cursor rotates the camera. Press escape again to free the cursor.
+Use the up and down arrow keys to change the FOV. F11 Can be used to set the window in fullscreen.
+
 ## Compiling
 
 This project is for windows 10+ only. It should work on windows 7, but I recommend using at least windows 10.
 
 Make sure that you have the latest vulkan skd version. This project was tested and compiled against vulkan `1.4.325`.
+The `VULKAN_SDK` environment variable has to be defined, and point to the vulkan installation folder.
 
 Git clone the project, and then open the .sln file.
 The Debug and Release configurations are self explanatory. The UnitTest_D/R configurations are used by the automated github actions.
