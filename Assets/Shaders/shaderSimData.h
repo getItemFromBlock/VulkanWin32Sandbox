@@ -1,5 +1,5 @@
 
-const uint OBJECT_COUNT = 65536;
+const uint OBJECT_COUNT = 256;
 const uint WORLD_SIZE = 500;
 const uint MAX_GROUP_COUNT = 1024;
 const uint CHUNK_COUNT_SIDE = 32;

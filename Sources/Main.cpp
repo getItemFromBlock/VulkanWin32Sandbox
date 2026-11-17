@@ -5,6 +5,7 @@
 
 #include "Maths/Maths.hpp"
 #include "RenderThread.hpp"
+#include "RenderThread_Test.hpp"
 #include "GameThread.hpp"
 
 #ifdef _DEBUG
@@ -19,6 +20,7 @@ UINT customMessage = 0;
 std::atomic_bool captured = false;
 std::atomic_bool fullscreen = false;
 RenderThread rh;
+RenderThread_Test th;
 GameThread gh;
 
 struct LaunchArgs
@@ -170,6 +172,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 
 		gh.Init(hWnd, customMessage, launchArgs.defaultRes,  launchArgs.isUnitTest);
 		rh.Init(hWnd, hInstance, &gh, launchArgs.defaultRes, launchArgs.targetDevice);
+		th.Init(hWnd, hInstance, &gh, Maths::IVec2(4096,2048), launchArgs.targetDevice);
 
 		// Main message loop:
 		MSG msg;
@@ -179,8 +182,9 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 			DispatchMessageW(&msg);
 		}
 		rh.Quit();
+		th.Quit();
 		gh.Quit();
-		if (gh.HasCrashed() || rh.HasCrashed())
+		if (gh.HasCrashed() || rh.HasCrashed() || th.HasCrashed())
 			return 1;
 		return (int)msg.wParam;
 	}
@@ -200,6 +204,7 @@ LRESULT CALLBACK WndProc(_In_ HWND hWnd, _In_ UINT message, _In_ WPARAM wParam, 
 	}
 	case WM_CLOSE:
 		rh.Quit();
+		th.Quit();
 		return DefWindowProc(hWnd, message, wParam, lParam);
 	case WM_CLEAR:
 		break;
